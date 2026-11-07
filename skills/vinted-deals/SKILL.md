@@ -38,7 +38,9 @@ You find and assess listings; the user buys. Never like, offer, message or buy o
 3. **Sample the market.** `find_deals` with `brands: ["Ralph Lauren", "Polo Ralph Lauren"]`,
    `categoryIds` (several at once, e.g. men's jumpers [1811, 1813, 1815] + women's [1917] leaves out
    cardigans), `colours` (Vinted's names: "Navy", "Light blue"…), `sizes`, and `condition` if the user
-   cares. If `comparable` is under ~30, raise `pages` to 5 or drop the size filter.
+   cares, and `excludeWords` for look-alikes the categories let through (e.g. `["zip", "quarter",
+   "cardigan"]` when after a crew-neck; they also leave the median). If `comparable` is under ~30,
+   raise `pages` to 5 or drop the size filter.
    For Ralph Lauren, run it a second time with `requireQrLabel: true, maxRatio: 2.5`: only listings whose
    photos show an RL QR label, cheapest first. Each call scans up to `maxNewScans` (default 40, ~4 s
    each) and caches scans for a week, so calling again reaches further down the list;
@@ -112,10 +114,13 @@ When the user wants to watch for an item, give it a page in the hub folder `lars
 `lars-space/vinted`. A page has:
 
 - one line on what the item is and the user's size (ask; leave a note if unknown);
-- a ```` ```vinted ```` block with `qr: only` and `max_ratio: 2.5` for the genuine candidates, and one with
-  `qr: show` for the overall price picture (keys on `lars-space/vinted`; the same filters as `find_deals`);
+- a ```` ```vinted ```` block with `qr: only` and `max_ratio: 5` for the genuine candidates, and one with
+  `qr: show` for the overall price picture (keys on `lars-space/vinted`; the same filters as `find_deals`,
+  plus `exclude` for title words). Most genuine sellers photograph the QR label folded, so the `qr: only`
+  block misses some: look at the neck-label photos yourself for the gold tab;
 - "Checking a genuine one": the item-specific checks;
-- "Checked listings": a table you add to after each check (date, link, all-in price, verdict);
+- "Checked listings": a table you add to after each check: listing, all-in price, a one- or two-word
+  verdict, and one short line of why. Keep the best pick in a line at the top of the page;
 - "Price history": one line per check with the median and how many had QR labels.
 
 Edit pages with `edit_page`, never rewrite them: the user may be typing in them. The block runs the

@@ -2,7 +2,7 @@ import { defaultCountry, type VintedAPIClient } from "../vinted-core";
 import { priceStats, rankDeals } from "../vinted-core/analysis/deals";
 import { sizeMatches } from "../vinted-core/parsers/response-parser";
 import { categoryPath } from "../resources/categories";
-import { searchFilterProperties } from "./search-items";
+import { keepTitle, searchFilterProperties } from "./search-items";
 import {
   brandFilter,
   colourFilter,
@@ -84,7 +84,7 @@ export async function handleFindDeals(client: VintedAPIClient, args: any): Promi
     Math.min(Math.max(args.pages || 3, 1), 5)
   );
 
-  const comparable = sample.items.filter((item) => sizeMatches(item.size, sizes));
+  const comparable = sample.items.filter((item) => sizeMatches(item.size, sizes) && keepTitle(item.title, args.excludeWords));
   const stats = priceStats(comparable.map((item) => item.price));
   if (!stats) {
     return [jsonBlock({ sampled: sample.items.length, comparable: 0, note: "No priced listings matched; widen the search." })];
@@ -126,6 +126,7 @@ export async function handleFindDeals(client: VintedAPIClient, args: any): Promi
       categories: categoryIds.length ? categoryIds.map((id) => ({ id, path: categoryPath(id) })) : null,
       colours: colours.resolved.length ? colours.resolved.map((colour) => colour.title) : null,
       sizes: sizes.length ? sizes : null,
+      excludeWords: args.excludeWords?.length ? args.excludeWords : null,
       condition: args.condition || null
     },
     sample: {

@@ -222,3 +222,11 @@ test("tells cloned QR labels from relisted items", () => {
   assert.equal(status(3, "https://q-rl.us/AAA"), "cloned", "another seller with the same code: a copied label");
   assert.ok(registry.cachedScan(1));
 });
+
+test("drops listings by title words", () => {
+  const { keepTitle } = require("../dist-ts/tools/search-items.js");
+  assert.equal(keepTitle("Polo Ralph Lauren Cable-Knit Quarter-Zip", ["zip"]), false);
+  assert.equal(keepTitle("Ralph Lauren cable knit crew neck", ["zip", "Cardigan"]), true);
+  assert.equal(keepTitle("Navy CARDIGAN", ["cardigan"]), false);
+  assert.equal(keepTitle("anything", []), true);
+});

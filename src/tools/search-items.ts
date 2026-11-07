@@ -46,8 +46,19 @@ export const searchFilterProperties = {
     type: "array",
     items: { type: "string", enum: ["new_with_tags", "new_without_tags", "very_good", "good", "satisfactory"] },
     description: "Condition filter"
+  },
+  excludeWords: {
+    type: "array",
+    items: { type: "string" },
+    description: 'Drop listings whose title contains any of these words, e.g. ["zip", "cardigan"] when after a crew-neck'
   }
 };
+
+/** True unless the title contains one of the excluded words (case-insensitive). */
+export function keepTitle(title: string, excludeWords: string[] = []): boolean {
+  const lower = (title || "").toLowerCase();
+  return !excludeWords.some((word) => word.trim() && lower.includes(word.trim().toLowerCase()));
+}
 
 export const searchItemsTool = {
   name: "search_items",
@@ -101,12 +112,14 @@ export async function handleSearchItems(client: VintedAPIClient, args: any): Pro
     priceMax: args.priceMax,
     condition: args.condition,
     sortBy: args.sortBy || "relevance",
-    // Sizes are filtered here, so fetch a full page to have enough left over.
-    perPage: sizes.length ? 96 : limit,
+    // Sizes and words are filtered here, so fetch a full page to have enough left over.
+    perPage: sizes.length || args.excludeWords?.length ? 96 : limit,
     page: args.page || 1
   });
 
-  const items = result.items.filter((item) => sizeMatches(item.size, sizes)).slice(0, limit);
+  const items = result.items
+    .filter((item) => sizeMatches(item.size, sizes) && keepTitle(item.title, args.excludeWords))
+    .slice(0, limit);
   const scanner = qrScanner(client, country, maxNewScans(args));
   const qr = args.checkQr ? await mapLimit(items, 1, (item: ParsedItem) => scanner.scan(item.id)) : null;
   const summary = jsonBlock({
