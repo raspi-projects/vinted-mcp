@@ -1,7 +1,7 @@
 import { TokenCache } from "./token-cache";
 import { getBaseUrl, getCountry } from "../models/country";
 import type { AuthSession } from "../types";
-import { runtimeRequire } from "./utils";
+import { runtimeRequire, vintedCookieMap } from "./utils";
 
 const MOBILE_DEVICE = {
   userAgent:
@@ -106,11 +106,7 @@ export class PlaywrightAuth {
         }
       }
 
-      const allCookies = await context.cookies();
-      const cookies: Record<string, string> = {};
-      for (const cookie of allCookies) {
-        cookies[cookie.name] = cookie.value;
-      }
+      const cookies = vintedCookieMap(await context.cookies(), countryInfo.domain);
 
       let csrfToken = "";
       try {

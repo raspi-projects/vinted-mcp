@@ -2,7 +2,7 @@ import { TokenCache } from "./token-cache";
 import { browserArgs } from "./playwright-auth";
 import { getBaseUrl, getCountry } from "../models/country";
 import type { AuthSession } from "../types";
-import { runtimeRequire } from "./utils";
+import { runtimeRequire, vintedCookieMap } from "./utils";
 
 const SESSION_TTL_MS = 15 * 60 * 1000;
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
@@ -26,7 +26,7 @@ export function hasProfile(country: string): boolean {
 }
 
 export function loginHint(country: string): string {
-  return `Not logged in for '${country}'. Run: npx @andrijdavid/vinted-mcp login --country ${country}`;
+  return `Not logged in for '${country}'. Run: vinted-mcp login --country ${country}`;
 }
 
 /**
@@ -155,10 +155,7 @@ async function fetchCurrentUser(page: any, country: string): Promise<CurrentUser
 }
 
 async function readSession(context: any, page: any, country: string, user: CurrentUser): Promise<AuthSession> {
-  const cookies: Record<string, string> = {};
-  for (const cookie of await context.cookies()) {
-    cookies[cookie.name] = cookie.value;
-  }
+  const cookies = vintedCookieMap(await context.cookies(), getCountry(country).domain);
 
   let csrfToken = "";
   try {

@@ -1,310 +1,118 @@
-# Vinted MCP Server
+# Vinted MCP Server (raspi-projects fork)
 
-[![npm version](https://img.shields.io/npm/v/%40andrijdavid%2Fvinted-mcp.svg)](https://www.npmjs.com/package/@andrijdavid/vinted-mcp)
-[![License: AGPL v3+](https://img.shields.io/badge/License-AGPL%20v3%2B-blue.svg)](./LICENSE.md)
+An MCP server for buying well on Vinted. It finds underpriced listings, shows Claude a listing's photos
+so it can check labels and logos, reports the full cost (price, Vinted fee, postage), and turns a
+seller's profile, reviews and wardrobe into a trust report. A companion skill,
+[`skills/vinted-deals`](skills/vinted-deals/SKILL.md), turns that into a deal-hunting and
+authentication workflow, tuned for Ralph Lauren on Vinted UK.
 
-An MCP server for Vinted search and analysis that provides tools to search listings, fetch item details, inspect seller profiles, compare prices across countries, and surface trending items.
+Forked from [andrijdavid/vinted-mcp](https://github.com/andrijdavid/vinted-mcp) (AGPL-3.0-or-later).
+This fork isn't published to npm; run it from a local build.
 
-It also exposes resources for supported countries and category data.
+**Disclaimer**: not affiliated with, authorised or endorsed by Vinted. It reads Vinted's public web
+pages and APIs, which Vinted's terms don't permit for automated use; keep request volumes low.
 
-**Disclaimer**: This project is not affiliated, associated, authorized, endorsed by, or in any way officially connected with Vinted, or any of its subsidiaries or its affiliates. The official Vinted website can be found at [vinted.com](https://www.vinted.com).
+## What's different from upstream
 
-## Client support
+- **Photos as images.** `get_item` attaches every photo (800px high), and `get_item_photos` fetches
+  originals (usually 1200×1600) for reading care labels and checking stitching.
+- **Deal finding.** `find_deals` samples up to 480 comparable listings, computes the spread of asking
+  prices and returns the cheapest relative to the median, with thumbnails.
+- **Seller trust report.** `get_seller` adds positive/neutral/negative counts, critical review texts, the
+  oldest review date, location, bundle discounts, and a scan of the seller's listings for bulk
+  new-with-tags stock and repeated titles. `flags` lists what stands out.
+- **Full cost and Item Verification.** `get_item` reports the Vinted fee and postage from Vinted's
+  pricing service, and whether Vinted's £10 Item Verification is offered (see the limits below).
+- **Real filters.** `find_brand` resolves brand names to IDs (Ralph Lauren = 88, Polo Ralph Lauren =
+  4273); `find_category` searches a snapshot of Vinted's real 3,081-category tree (the upstream list was
+  made up).
+- **Correct money and labels.** Prices from sellers abroad are shown converted, with the seller's own
+  price and location; conditions come back in English (the catalogue API answers in French).
+- **Fixes.** Logged-in mode used to send *every* cookie in the browser profile (Google's, Facebook's…)
+  to Vinted; now only the country's Vinted cookies go. Failures are reported as errors instead of
+  empty placeholder data. UK is the default country (`VINTED_DEFAULT_COUNTRY`).
 
-This server works with MCP clients that support local `stdio` servers.
-
-Popular clients and setup docs:
-
-- Claude Desktop (local): https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop
-- Claude Desktop (remote): https://support.claude.com/en/articles/11175166-getting-started-with-custom-connectors-using-remote-mcp
-- ChatGPT (MCP developer mode): https://platform.openai.com/docs/guides/developer-mode
-- ChatGPT (MCP and connectors): https://platform.openai.com/docs/guides/tools-remote-mcp
-- Cursor: https://docs.cursor.com/context/model-context-protocol
-- Windsurf: https://docs.windsurf.com/windsurf/cascade/mcp
-- Cline: https://docs.cline.bot/mcp/configuring-mcp-servers
-- Full MCP client directory: https://modelcontextprotocol.io/clients
-
-## Quick start
-
-### Option 1: npx
-
-Add this to your MCP client config:
-
-```json
-{
-  "mcpServers": {
-    "vinted": {
-      "command": "npx",
-      "args": ["-y", "@andrijdavid/vinted-mcp"]
-    }
-  }
-}
-```
-
-### Option 1b: bunx (canary)
+## Use it with Claude Code
 
 ```bash
-bunx @andrijdavid/vinted-mcp@next
+git clone https://github.com/raspi-projects/vinted-mcp.git ~/projects/vinted-mcp
+cd ~/projects/vinted-mcp
+npm install && npm run build && npm run bundle
+
+claude mcp add --scope user vinted -e VINTED_DEFAULT_COUNTRY=uk -- node ~/projects/vinted-mcp/dist/bundle.js
+ln -s ~/projects/vinted-mcp/skills/vinted-deals ~/.claude/skills/vinted-deals
 ```
 
-This starts the server in `stdio` mode and waits for an MCP client.
-
-### Option 2: global install
-
-```bash
-npm install -g @andrijdavid/vinted-mcp
-```
-
-Then configure:
-
-```json
-{
-  "mcpServers": {
-    "vinted": {
-      "command": "vinted-mcp"
-    }
-  }
-}
-```
-
-### Run in network mode (Streamable HTTP over TCP)
-
-If you need a network endpoint instead of stdio, run:
-
-```bash
-VINTED_MCP_TRANSPORT=http VINTED_MCP_HOST=127.0.0.1 VINTED_MCP_PORT=3001 bunx @andrijdavid/vinted-mcp@next
-```
-
-Optional:
-
-- `VINTED_MCP_PATH` (default `/mcp`)
-- `VINTED_MCP_ENABLE_LEGACY_SSE` (default `true`)
-- `VINTED_MCP_LEGACY_SSE_PATH` (default `/sse`)
-- `VINTED_MCP_LEGACY_MESSAGES_PATH` (default `/messages`)
-
-Default endpoints:
-
-- Streamable HTTP (recommended): `http://127.0.0.1:3001/mcp`
-- Legacy SSE (older clients): `http://127.0.0.1:3001/sse`
-
-## CLI usage and env variables
-
-### Pass env vars inline (macOS/Linux)
-
-```bash
-VINTED_AUTH_MODE=env \
-VINTED_AUTH_COOKIES='session_cookie=your_value; other_cookie=your_value' \
-VINTED_AUTH_CSRF_TOKEN='your_csrf_token' \
-bunx @andrijdavid/vinted-mcp@next
-```
-
-### Pass env vars inline (PowerShell)
-
-```powershell
-$env:VINTED_AUTH_MODE = "env"
-$env:VINTED_AUTH_COOKIES = "session_cookie=your_value; other_cookie=your_value"
-$env:VINTED_AUTH_CSRF_TOKEN = "your_csrf_token"
-bunx @andrijdavid/vinted-mcp@next
-```
-
-### Pass env vars inline (Windows Command Prompt)
-
-```bat
-set VINTED_AUTH_MODE=env
-set VINTED_AUTH_COOKIES=session_cookie=your_value; other_cookie=your_value
-set VINTED_AUTH_CSRF_TOKEN=your_csrf_token
-bunx @andrijdavid/vinted-mcp@next
-```
-
-### Use a local `.env` file
-
-The server auto-loads `.env` from the current working directory.
-
-```bash
-cp .env.example .env
-bunx @andrijdavid/vinted-mcp@next
-```
-
-### Run network mode from CLI with env
-
-```bash
-VINTED_MCP_TRANSPORT=http \
-VINTED_MCP_HOST=127.0.0.1 \
-VINTED_MCP_PORT=3001 \
-bunx @andrijdavid/vinted-mcp@next
-```
-
-Windows Command Prompt:
-
-```bat
-set VINTED_MCP_TRANSPORT=http
-set VINTED_MCP_HOST=127.0.0.1
-set VINTED_MCP_PORT=3001
-bunx @andrijdavid/vinted-mcp@next
-```
-
-## Authentication and environment
-
-The server auto-loads `.env` from the working directory if present.
-
-Start from the example file:
-
-```bash
-cp .env.example .env
-```
-
-Main variables:
-
-- `VINTED_AUTH_MODE`: `http`, `playwright`, or `env`
-- `VINTED_AUTH_COOKIES`: cookie header string or JSON object string
-- `VINTED_AUTH_CSRF_TOKEN`: CSRF token
-- `VINTED_AUTH_ACCESS_TOKEN`: optional bearer token
-- `VINTED_AUTH_REFRESH_TOKEN`: optional refresh token, used to mint a new access token
-- `VINTED_PROFILE_DIR`: optional root for browser profiles created by `login`, default `~/.vinted-mcp`
-- `VINTED_PROXY_URL`: optional proxy URL
-- `VINTED_MAX_CONCURRENCY`: optional tuning
-- `VINTED_REQUEST_DELAY_MS`: optional tuning
-- `VINTED_MAX_RETRIES`: optional tuning
-
-Example client config with env auth:
-
-```json
-{
-  "mcpServers": {
-    "vinted": {
-      "command": "npx",
-      "args": ["-y", "@andrijdavid/vinted-mcp"],
-      "env": {
-        "VINTED_AUTH_MODE": "env",
-        "VINTED_AUTH_COOKIES": "session_cookie=your_value; other_cookie=your_value",
-        "VINTED_AUTH_CSRF_TOKEN": "your_csrf_token"
-      }
-    }
-  }
-}
-```
-
-## Signing in
-
-Search and price tools work anonymously. Anything tied to your account (`like_item`), plus a
-seller's own listings in `get_seller`, needs a logged-in session. Run this once per country:
-
-```bash
-npx @andrijdavid/vinted-mcp login --country fr
-```
-
-A browser window opens on Vinted. Sign in the way you normally do (password, captcha, 2FA, Google
-login all work). The window closes by itself once you are signed in, and the browser profile is
-saved to `~/.vinted-mcp/profile-<country>`. The server reopens that profile headlessly when it needs
-cookies, so the session refreshes itself and there is nothing to copy or paste.
-
-Requirements: Playwright with Chromium (`npm i playwright && npx playwright install chromium`).
-Set `VINTED_PROFILE_DIR` to move the profile root somewhere other than `~/.vinted-mcp`.
-
-### Manual cookies (headless servers and CI)
-
-Where no browser can be opened, use `VINTED_AUTH_MODE=env` and supply the credentials yourself:
-
-1. Sign in to Vinted in your browser.
-2. Open Developer Tools.
-3. Open `Network` and refresh.
-4. Open any `https://www.vinted.<country>/api/...` request.
-5. Copy from `Request Headers`:
-   - `cookie` -> `VINTED_AUTH_COOKIES`
-   - `x-csrf-token` -> `VINTED_AUTH_CSRF_TOKEN`
-6. Optional: copy `authorization: Bearer ...` token into `VINTED_AUTH_ACCESS_TOKEN`, and the
-   `refresh_token_web` cookie value into `VINTED_AUTH_REFRESH_TOKEN`.
-
-Security notes:
-
-- treat these values as secrets
-- never commit `.env`
-- rotate tokens/cookies if exposed
-- the saved browser profile holds a live session; it is stored with owner-only permissions
+Then ask, for example, "find me a good deal on a Ralph Lauren polo, size M" or paste a listing link and
+ask whether it's legit.
 
 ## Tools
 
-### `search_items`
+| Tool | What it does |
+|---|---|
+| `find_deals` | Samples 1–5 pages of 96 listings for a search (brands, category, sizes, condition), returns asking-price statistics and the listings at or below a fraction of the median, cheapest first, with thumbnails. |
+| `search_items` | Search with brand names or IDs, category, sizes, condition, price range and sort; optional thumbnails. |
+| `get_item` | Details, photos (none / 800px / originals), costs, Item Verification, seller summary and badges. |
+| `get_item_photos` | Chosen photos at original size, up to 6 per call. |
+| `get_seller` | Trust report: reviews, activity, verifications, location, bundle discounts, listing scan, flags. |
+| `find_brand` | Brand IDs by name, with Vinted's "requires authenticity check" flag. |
+| `find_category` | Category IDs by words, e.g. "men polo" → 5492. A parent category includes its children. |
+| `compare_prices` | Upstream's cross-country comparison (see limits). |
+| `get_trending` | Recent listings ranked by favourites. |
+| `like_item` | Favourite or unfavourite a listing; needs a signed-in session. |
 
-Search listings with filters like country, price range, brand IDs, category, condition, sort, and limit.
+Resources: `vinted://countries`, `vinted://categories` (top three levels), and templates for items,
+sellers and searches.
 
-### `get_item`
+## Limits worth knowing
 
-Get item details by `itemId` or `url`. Vinted retired the item API, so this reads the public item
-page instead: it is slower than search, and view counts and listing dates are no longer available.
+- **Region follows your IP.** Vinted serves the catalogue for the caller's region whatever domain is
+  used, so `compare_prices` across countries returns the same listings from one location.
+- **Item Verification needs a signed-in session to see.** Vinted's pricing service returned
+  `item_verification: null` for every listing when browsing anonymously, including £850 Moncler and
+  Gucci pieces. `get_item` then reports `offered: null` and checks the published rules (≥ £85,
+  eligible category, UK seller); the diamond badge on the listing settles it.
+- **Asking prices, not sold prices.** Medians describe what sellers ask today.
+- **Originals come from the seller's wardrobe.** Their URLs only appear there, so for sellers with
+  hundreds of listings an older item may only be available at 800px.
 
-### `get_seller`
+## Signing in (optional)
 
-Get seller profile data, recent reviews and optional recent items by `sellerId` or `url`. The rating
-is on a 0-5 scale. Recent items come from the seller's wardrobe, which Vinted returns empty to
-anonymous callers, so that part needs a logged-in session.
+Searching and checking listings work anonymously. Signing in is only needed for `like_item`, and
+probably for seeing Item Verification (untested). Either:
 
-### `compare_prices`
+- `node dist/bundle.js login --country uk` opens a browser to sign in (needs Playwright with Chromium
+  and a display), saving a profile under `~/.vinted-mcp`; or
+- set `VINTED_AUTH_MODE=env` with `VINTED_AUTH_COOKIES` and `VINTED_AUTH_CSRF_TOKEN` copied from your
+  browser's developer tools.
 
-Compare average and median prices for a query across countries.
+Either way, requests then go out as your account. Treat these values as secrets.
 
-### `get_trending`
+## Environment
 
-Return recently listed items ranked by favourites, then views. The catalogue API no longer returns
-listing timestamps or view counts, so the ranking is coarser than it used to be.
+| Variable | Default | Meaning |
+|---|---|---|
+| `VINTED_DEFAULT_COUNTRY` | `uk` | Country when a call names none |
+| `VINTED_AUTH_MODE` | `http` | `http` (anonymous), `playwright` or `env` |
+| `VINTED_AUTH_COOKIES`, `VINTED_AUTH_CSRF_TOKEN`, `VINTED_AUTH_ACCESS_TOKEN`, `VINTED_AUTH_REFRESH_TOKEN` | – | Credentials for `env` mode |
+| `VINTED_PROFILE_DIR` | `~/.vinted-mcp` | Where `login` keeps browser profiles |
+| `VINTED_PROXY_URL` | – | Proxy for Vinted requests |
+| `VINTED_MAX_CONCURRENCY`, `VINTED_REQUEST_DELAY_MS`, `VINTED_MAX_RETRIES` | 3, 500, 3 | Rate limiting |
+| `VINTED_MCP_TRANSPORT` | `stdio` | `http` serves Streamable HTTP and SSE on `VINTED_MCP_HOST:VINTED_MCP_PORT` (no authentication: keep it on localhost) |
 
-### `like_item`
+The server also loads a `.env` file from its working directory.
 
-Add an item to your favourites by `itemId` or `url`, or remove it with `unlike: true`. Needs a
-logged-in session, see [Signing in](#signing-in). Already-liked items are left alone rather than
-toggled off.
-
-## Resources
-
-- `vinted://countries`
-- `vinted://categories`
-
-### Resource templates
-
-- `vinted://item/{country}/{itemId}`
-- `vinted://seller/{country}/{sellerId}`
-- `vinted://search/{country}/{query}`
-
-These templates let clients create direct resource URIs quickly.
-
-## Prompt templates
-
-- `find_best_deal`
-- `screen_seller`
-- `search_item_with_filters`
-- `trending_report`
-- `buy_or_skip_decision`
-- `resale_arbitrage_estimator`
-
-These predefined prompts help clients bootstrap common Vinted workflows.
-
-Supported countries: `fr`, `de`, `uk`, `it`, `es`, `nl`, `pl`, `pt`, `be`, `at`, `lt`, `cz`, `sk`, `hu`, `ro`, `hr`, `fi`, `dk`, `se`.
-
-## Local development
+## Development
 
 ```bash
 npm install
-npm run build
-npm run bundle
-npm start
-```
-
-## Testing
-
-Run protocol-level tests:
-
-```bash
-npm test
-```
-
-Run live integration tests:
-
-```bash
-RUN_LIVE_MCP_TESTS=1 npm test
+npm run build        # TypeScript → dist-ts (used by the unit tests)
+npm run bundle       # esbuild → dist/bundle.js (what MCP clients run)
+npm test             # unit + protocol tests, offline
+RUN_LIVE_MCP_TESTS=1 npm test   # plus a live run against Vinted
+npm run update-categories       # refresh src/resources/catalog-tree.json
 ```
 
 ## License
 
-Licensed under `AGPL-3.0-or-later`.
-
-See `LICENSE.md`.
+AGPL-3.0-or-later, as upstream. See `LICENSE.md`.

@@ -1,20 +1,23 @@
 import { CookieFactory } from "../auth/cookie-factory";
 import { EnvAuth } from "../auth/env-auth";
 import { HttpAuth } from "../auth/http-auth";
-import { PlaywrightAuth } from "../auth/playwright-auth";
 import { ProfileAuth, hasProfile, loginHint } from "../auth/profile-auth";
 import { TokenCache } from "../auth/token-cache";
 import { getBaseUrl } from "../models/country";
+import { buildSellerReport } from "../analysis/seller";
 import {
+  buildBrandSearchUrl,
   buildFavouriteToggleUrl,
   buildItemPageUrl,
+  buildItemServicesUrl,
   buildSearchUrl,
   buildUserFeedbacksUrl,
   buildUserUrl,
   buildWardrobeUrl
 } from "./endpoints";
 import { RateLimiter } from "./rate-limiter";
-import { parseItem, parseSearchResponse, parseSeller, parseSellerProfile } from "../parsers/response-parser";
+import { parseItemPage, type ItemPagePhoto } from "../parsers/item-page";
+import { amount, parseItem, parseSearchResponse, parseSeller, unixToIso, type ParsedItem } from "../parsers/response-parser";
 import type { AuthSession, ClientOptions, SearchParams } from "../types";
 import { getRandomUserAgent, getBrowserHeaders, runtimeRequire } from "../auth/utils";
 
@@ -33,8 +36,9 @@ export class VintedAPIClient {
   private readonly proxies: string[];
   private readonly authMode: "http" | "playwright" | "env";
   private cookieFactory: CookieFactory | null = null;
-  private playwrightAuth: PlaywrightAuth | null;
   private consecutiveFailures = 0;
+  private readonly wardrobeCache = new Map<string, { at: number; items: any[] }>();
+  private readonly itemCache = new Map<string, { at: number; item: ReturnType<VintedAPIClient["loadItem"]> }>();
   private readonly sessionRequestCount = new Map<string, number>();
   private readonly sessionLocks = new Map<string, Promise<AuthSession>>();
   private cooldownUntil = 0;
@@ -44,6 +48,10 @@ export class VintedAPIClient {
   private static readonly MAX_BACKOFF_MS = 60000;
   private static readonly LONG_COOLDOWN_MS = 5 * 60 * 1000;
   private static readonly MAX_REQUESTS_PER_SESSION = 40;
+  private static readonly WARDROBE_PAGE_SIZE = 96;
+  private static readonly WARDROBE_CACHE_MS = 5 * 60 * 1000;
+  private static readonly ITEM_CACHE_MS = 2 * 60 * 1000;
+  private static readonly MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
   constructor(options: ClientOptions = {}) {
     this.authMode = options.authMode || "http";
@@ -56,8 +64,6 @@ export class VintedAPIClient {
     if (this.authMode === "playwright") {
       this.cookieFactory = new CookieFactory(this.tokenCache);
     }
-
-    this.playwrightAuth = new PlaywrightAuth(new TokenCache(15 * 60 * 1000));
   }
 
   async searchItems(params: SearchParams) {
@@ -66,131 +72,231 @@ export class VintedAPIClient {
     return parseSearchResponse(data, params.country, params.page || 1, params.perPage || 24);
   }
 
-  /**
-   * Vinted removed the item JSON API; the public item page is the only source
-   * of detail left, so scrape it and fill the seller block from the user API,
-   * which is still alive.
-   */
-  async getItem(id: number, country: string) {
-    try {
-      const item = await this.scrapeItemPage(id, country);
+  /** Fetches up to `pages` result pages of 96 listings, for price statistics. */
+  async searchSample(params: SearchParams, pages: number) {
+    const seen = new Set<number>();
+    const items: ParsedItem[] = [];
+    let totalCount = 0;
 
-      if (item.seller.id) {
-        try {
-          const userData = await this.makeRequest(buildUserUrl(item.seller.id, country), country);
-          item.seller = parseSeller(userData.user || userData, country);
-        } catch (error: any) {
-          console.warn(`[vinted-core] Seller lookup failed for item ${id}: ${error?.message || error}`);
+    for (let page = 1; page <= pages; page++) {
+      const result = await this.searchItems({ ...params, page, perPage: 96 });
+      totalCount = result.totalCount;
+      for (const item of result.items) {
+        // Promoted listings repeat across pages.
+        if (!seen.has(item.id)) {
+          seen.add(item.id);
+          items.push(item);
         }
       }
+      if (result.items.length < 96) {
+        break;
+      }
+    }
 
-      return item;
-    } catch (error: any) {
-      console.warn(`[vinted-core] Item page scrape failed for ${id}: ${error?.message || error}`);
+    return { items, totalCount };
+  }
+
+  async findBrands(keyword: string, country: string) {
+    const data = await this.makeRequest(buildBrandSearchUrl(keyword, country), country);
+    return (data.brands || []).map((brand: any) => ({
+      id: brand.id,
+      title: brand.title,
+      itemCount: brand.item_count || 0,
+      requiresAuthenticityCheck: Boolean(brand.requires_authenticity_check),
+      isLuxury: Boolean(brand.is_luxury)
+    }));
+  }
+
+  /** Resolves brand names to ids, preferring an exact title match over the most-listed partial one. */
+  async resolveBrands(names: string[], country: string) {
+    const resolved: Array<{ name: string; id: number; title: string }> = [];
+    for (const name of names) {
+      const brands = await this.findBrands(name, country);
+      const exact = brands.find((brand: any) => brand.title.toLowerCase() === name.trim().toLowerCase());
+      const best = exact || [...brands].sort((a: any, b: any) => b.itemCount - a.itemCount)[0];
+      if (!best) {
+        throw new Error(`No Vinted brand matches "${name}"`);
+      }
+      resolved.push({ name, id: best.id, title: best.title });
+    }
+    return resolved;
+  }
+
+  /**
+   * Vinted removed the item JSON API. The public item page has the details
+   * and 800px photos; the seller's wardrobe adds original-size photos,
+   * upload times, views and the total with buyer protection. Cached briefly,
+   * since get_item_photos usually follows get_item for the same listing.
+   */
+  getItem(id: number, country: string) {
+    const key = `${country}:${id}`;
+    const cached = this.itemCache.get(key);
+    if (cached && Date.now() - cached.at < VintedAPIClient.ITEM_CACHE_MS) {
+      return cached.item;
+    }
+
+    const item = this.loadItem(id, country);
+    this.itemCache.set(key, { at: Date.now(), item });
+    item.catch(() => this.itemCache.delete(key));
+    return item;
+  }
+
+  private async loadItem(id: number, country: string) {
+    const pageUrl = buildItemPageUrl(id, country);
+    const page = parseItemPage(await this.fetchItemPage(id, country), id, pageUrl);
+    if (!page.title && !page.photos.length) {
+      throw new Error(`Could not read item ${id} from ${pageUrl}`);
+    }
+
+    const [listing, seller, services] = await Promise.all([
+      page.sellerId ? this.findListing(page.sellerId, id, country).catch(() => null) : null,
+      page.sellerId
+        ? this.makeRequest(buildUserUrl(page.sellerId, country), country)
+            .then((data) => parseSeller(data.user || data, country))
+            .catch(() => null)
+        : null,
+      this.makeRequest(buildItemServicesUrl(id, country), country)
+        .then((data) => data.services || null)
+        .catch(() => null)
+    ]);
+
+    const listingPhotos: any[] = listing?.photos || [];
+    const pagePhotos: ItemPagePhoto[] = page.photos.length
+      ? page.photos
+      : listingPhotos.map((photo) => ({ id: String(photo.high_resolution?.id), url: photo.url, width: photo.width, height: photo.height }));
+    const photos = pagePhotos.map((photo, index) => {
+      const match = listingPhotos.find((entry) => entry?.high_resolution?.id === photo.id) || listingPhotos[index];
+      return {
+        index: index + 1,
+        width: photo.width,
+        height: photo.height,
+        url: photo.url,
+        fullSizeUrl: (match?.full_size_url as string) || null,
+        uploadedAt: unixToIso(match?.high_resolution?.timestamp)
+      };
+    });
+    const uploadTimes = photos.map((photo) => photo.uploadedAt).filter(Boolean).sort();
+
+    // The page shows the seller's own currency; the wardrobe converts to the
+    // buyer's, as search does. Sellers abroad list in USD, EUR and so on.
+    const price = amount(listing?.price) ?? page.price;
+    const currency = listing?.price?.currency_code || page.currency;
+
+    return {
+      ...page,
+      price,
+      currency,
+      sellerPrice: page.currency !== currency ? { amount: page.price, currency: page.currency } : null,
+      photos,
+      totalPrice: amount(listing?.total_item_price),
+      viewCount: listing ? Number(listing.view_count) || 0 : null,
+      favouriteCount: listing ? Number(listing.favourite_count) || 0 : page.favouriteCount,
+      listedAt: (uploadTimes[0] as string) || null,
+      seller: { ...(seller || { id: page.sellerId }), badges: page.sellerBadges },
+      services: services
+        ? {
+            vintedFee: amount(services.buyer_protection?.final_price),
+            postage: amount(services.shipping?.final_price),
+            postageBeforeDiscount: amount(services.shipping?.original_price),
+            itemVerificationFee: amount(services.item_verification?.final_price),
+            itemVerificationListed: Boolean(services.item_verification)
+          }
+        : null,
+      signedIn: this.hasSignedInSession(country)
+    };
+  }
+
+  /** Profile, reviews and a sample of active listings, condensed by buildSellerReport. */
+  async getSeller(id: number, country: string, options: { brand?: string; itemLimit?: number; wardrobePages?: number } = {}) {
+    const [userData, latest, listings] = await Promise.all([
+      this.makeRequest(buildUserUrl(id, country), country),
+      this.makeRequest(buildUserFeedbacksUrl(id, country, 1, 100), country).catch(() => null),
+      this.getWardrobeItems(id, country, options.wardrobePages ?? 2).catch(() => [])
+    ]);
+
+    const lastPage = latest?.pagination?.total_pages || 1;
+    const oldest = lastPage > 1 ? await this.makeRequest(buildUserFeedbacksUrl(id, country, lastPage, 100), country).catch(() => null) : null;
+
+    return buildSellerReport({
+      user: userData.user || userData,
+      latestFeedback: latest?.user_feedbacks || [],
+      oldestFeedback: oldest?.user_feedbacks || [],
+      feedbackTotal: latest?.pagination?.total_entries,
+      listings: listings.map((raw: any) => parseItem(raw, country)),
+      country,
+      brand: options.brand,
+      itemLimit: options.itemLimit
+    });
+  }
+
+  /** Downloads a photo from Vinted's image CDN as base64, for MCP image content. */
+  async fetchImage(url: string): Promise<{ data: string; mimeType: string; bytes: number }> {
+    if (!/^https:\/\/images\d*\.vinted\.net\//.test(url)) {
+      throw new Error(`Not a Vinted image URL: ${url}`);
+    }
+
+    const dispatcher = this.getProxyDispatcher();
+    const response = await fetch(url, {
+      headers: { "User-Agent": getRandomUserAgent(), Accept: "image/webp,image/jpeg,image/*" },
+      ...(dispatcher ? { dispatcher } : {})
+    } as RequestInit);
+    if (!response.ok) {
+      throw new Error(`Photo fetch failed: ${response.status} ${response.statusText}`);
+    }
+
+    const { Buffer } = runtimeRequire("buffer");
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length > VintedAPIClient.MAX_IMAGE_BYTES) {
+      throw new Error(`Photo is ${Math.round(buffer.length / 1024)} KB, over the ${VintedAPIClient.MAX_IMAGE_BYTES / 1024} KB limit`);
     }
 
     return {
-      id,
-      url: buildItemPageUrl(id, country),
-      title: "",
-      description: "(All fetch methods failed)",
-      price: 0,
-      currency: "EUR",
-      originalPrice: null,
-      country,
-      brand: null,
-      brandId: null,
-      category: null,
-      categoryId: null,
-      size: null,
-      condition: null,
-      color: null,
-      photos: [],
-      favouriteCount: 0,
-      viewCount: 0,
-      isSold: false,
-      soldAt: null,
-      createdAt: "",
-      updatedAt: "",
-      seller: {
-        id: 0,
-        username: "",
-        rating: null,
-        ratingCount: 0,
-        itemCount: 0,
-        followerCount: 0,
-        lastSeenAt: null,
-        country,
-        profileUrl: ""
-      },
-      scrapedAt: new Date().toISOString()
+      data: buffer.toString("base64"),
+      mimeType: (response.headers.get("content-type") || "image/jpeg").split(";")[0].trim(),
+      bytes: buffer.length
     };
   }
 
-  async getSeller(id: number, country: string) {
-    const userUrl = buildUserUrl(id, country);
-    const feedbacksUrl = buildUserFeedbacksUrl(id, country);
-    const wardrobeUrl = buildWardrobeUrl(id, country);
-
-    const fetchSellerData = async (requestFn: (url: string, country: string) => Promise<any>) => {
-      const [userData, feedbackData, itemsData] = await Promise.all([
-        requestFn(userUrl, country),
-        requestFn(feedbacksUrl, country).catch(() => ({ user_feedbacks: [] })),
-        requestFn(wardrobeUrl, country).catch(() => ({ items: [] }))
-      ]);
-
-      const items = (itemsData.items || []).map((item: any) => parseItem(item, country));
-
-      const raw = userData.user || userData;
-      const profile = parseSellerProfile(raw, country);
-      const reviews = (feedbackData.user_feedbacks || []).map((feedback: any) => ({
-        rating: feedback.rating,
-        comment: feedback.feedback || "",
-        createdAt: feedback.created_at_ts || null
-      }));
-
-      return { ...profile, reviews, items, scrapedAt: new Date().toISOString() };
-    };
-
-    if (this.playwrightAuth) {
-      try {
-        return await fetchSellerData((url, c) => this.makePlaywrightRequest(url, c));
-      } catch (error: any) {
-        console.warn(`[vinted-core] Playwright auth failed for seller ${id}: ${error?.message || error}`);
+  /** The wardrobe is the only API left that has a listing's original photos and upload times. */
+  private async findListing(sellerId: number, itemId: number, country: string, maxPages = 3): Promise<any | null> {
+    for (let page = 1; page <= maxPages; page++) {
+      const items = await this.getWardrobePage(sellerId, country, page);
+      const hit = items.find((item: any) => Number(item.id) === itemId);
+      if (hit) {
+        return hit;
+      }
+      if (items.length < VintedAPIClient.WARDROBE_PAGE_SIZE) {
+        return null;
       }
     }
-
-    try {
-      return await fetchSellerData((url, c) => this.makeRequest(url, c));
-    } catch (error: any) {
-      if (String(error?.message || "").includes("403") || String(error?.message || "").includes("Cloudflare")) {
-        console.warn(`[vinted-core] Seller profile Cloudflare-blocked for ${id}, returning partial data`);
-        return {
-          id,
-          username: "",
-          profileUrl: `${getBaseUrl(country)}/member/${id}`,
-          rating: null,
-          ratingCount: 0,
-          itemCount: 0,
-          soldItemCount: 0,
-          followerCount: 0,
-          followingCount: 0,
-          country,
-          city: null,
-          lastSeenAt: null,
-          createdAt: null,
-          verifications: { email: false, phone: false, facebook: false, google: false },
-          reviews: [],
-          items: [],
-          scrapedAt: new Date().toISOString()
-        };
-      }
-
-      throw error;
-    }
+    return null;
   }
 
-  /** Needs a logged-in session; Vinted returns an empty wardrobe to anonymous callers. */
+  private async getWardrobeItems(sellerId: number, country: string, maxPages: number): Promise<any[]> {
+    const items: any[] = [];
+    for (let page = 1; page <= maxPages; page++) {
+      const pageItems = await this.getWardrobePage(sellerId, country, page);
+      items.push(...pageItems);
+      if (pageItems.length < VintedAPIClient.WARDROBE_PAGE_SIZE) {
+        break;
+      }
+    }
+    return items;
+  }
+
+  private async getWardrobePage(sellerId: number, country: string, page: number): Promise<any[]> {
+    const key = `${country}:${sellerId}:${page}`;
+    const cached = this.wardrobeCache.get(key);
+    if (cached && Date.now() - cached.at < VintedAPIClient.WARDROBE_CACHE_MS) {
+      return cached.items;
+    }
+
+    const url = buildWardrobeUrl(sellerId, country, page, VintedAPIClient.WARDROBE_PAGE_SIZE, "newest_first");
+    const items = (await this.makeRequest(url, country)).items || [];
+    this.wardrobeCache.set(key, { at: Date.now(), items });
+    return items;
+  }
+
   async getSellerItems(id: number, country: string, perPage = 24) {
     const data = await this.makeRequest(buildWardrobeUrl(id, country, 1, perPage), country);
     return (data.items || []).map((item: any) => parseItem(item, country));
@@ -329,6 +435,11 @@ export class VintedAPIClient {
       }
       throw error;
     }
+  }
+
+  /** Env credentials or a saved login profile mean requests go out as the user. */
+  hasSignedInSession(country: string): boolean {
+    return this.authMode === "env" || hasProfile(country);
   }
 
   invalidateSession(country: string): void {
@@ -521,52 +632,6 @@ export class VintedAPIClient {
     return body.includes("cf-challenge") || body.includes("Just a moment") || body.includes("Attention Required");
   }
 
-  private async makePlaywrightRequest(url: string, country: string, retryCount = 0): Promise<any> {
-    if (!this.playwrightAuth) {
-      throw new Error("PlaywrightAuth not available");
-    }
-
-    const session = await this.playwrightAuth.createSession(country);
-    const cookieHeader = Object.entries(session.cookies)
-      .map(([key, value]) => `${key}=${value}`)
-      .join("; ");
-
-    const userAgent = this.playwrightAuth.getUserAgent(country);
-    const headers: Record<string, string> = {
-      "User-Agent": userAgent,
-      Accept: "application/json, text/plain, */*",
-      "Accept-Language": "en-US,en;q=0.9",
-      Cookie: cookieHeader,
-      "X-CSRF-Token": session.csrfToken,
-      Referer: `${getBaseUrl(country)}/`,
-      Origin: getBaseUrl(country)
-    };
-
-    if (session.accessToken) {
-      headers.Authorization = `Bearer ${session.accessToken}`;
-    }
-
-    const response = await this.rateLimiter.execute(() =>
-      fetch(url, {
-        headers,
-        redirect: "follow"
-      })
-    );
-
-    this.playwrightAuth.incrementRequestCount(country);
-
-    if (response.ok) {
-      return response.json();
-    }
-
-    if ((response.status === 403 || response.status === 429) && retryCount < 1) {
-      this.playwrightAuth = new PlaywrightAuth(new TokenCache(15 * 60 * 1000));
-      return this.makePlaywrightRequest(url, country, retryCount + 1);
-    }
-
-    throw new Error(`Vinted API error (playwright): ${response.status} ${response.statusText}`);
-  }
-
   private async fetchItemPage(id: number, country: string): Promise<string> {
     const dispatcher = this.getProxyDispatcher();
 
@@ -597,74 +662,6 @@ export class VintedAPIClient {
     }
 
     return response.text();
-  }
-
-  /**
-   * Structured fields come from the page's <script type="application/ld+json">
-   * block. The rest (seller id, favourite count, catalog id, brand id, size)
-   * only exist inside the React Server Component payload, which is JSON
-   * embedded as an escaped JS string literal, so its quotes appear in the raw
-   * HTML as \" - hence the backslash-escaped patterns below.
-   */
-  private async scrapeItemPage(id: number, country: string): Promise<any> {
-    const baseUrl = getBaseUrl(country);
-    const html = await this.fetchItemPage(id, country);
-
-    const ldJsonMatch = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
-    const ldJson = ldJsonMatch ? safeJsonParse(ldJsonMatch[1]) : null;
-
-    const sellerIdMatch = html.match(/\\"seller_id\\":\\"?(\d+)\\"?/);
-    const favouriteMatch = html.match(/\\"favourite_count\\":(\d+)/);
-    const categoryIdMatch = html.match(/\\"catalog_id\\":\\?"?(\d+)\\?"?/);
-    const brandIdMatch = html.match(/\\"code\\":\\"summary_brand\\",\\"id\\":\\"(\d+)\\"/);
-    const sizeMatch = html.match(/\\"code\\":\\"size\\",\\"data\\":\{\\"id\\":\d+,\\"title\\":\\"[^"]*?\\",\\"value\\":\\"([^"]+?)\\"/);
-
-    const photos: string[] = [];
-    for (const match of html.matchAll(/\\"url\\":\\"(https:\/\/images1\.vinted\.net\/[^"\\]*\/f800\/[^"\\]+)\\"/g)) {
-      if (!photos.includes(match[1])) {
-        photos.push(match[1]);
-      }
-    }
-
-    const sellerId = sellerIdMatch ? parseInt(sellerIdMatch[1], 10) : 0;
-
-    return {
-      id,
-      url: ldJson?.offers?.url || buildItemPageUrl(id, country),
-      title: ldJson?.name || "",
-      description: ldJson?.description || "",
-      price: Number(ldJson?.offers?.price || 0),
-      currency: ldJson?.offers?.priceCurrency || "EUR",
-      originalPrice: null,
-      country,
-      brand: ldJson?.brand?.name || null,
-      brandId: brandIdMatch ? parseInt(brandIdMatch[1], 10) : null,
-      category: ldJson?.category || null,
-      categoryId: categoryIdMatch ? parseInt(categoryIdMatch[1], 10) : null,
-      size: sizeMatch?.[1] || null,
-      condition: ldJson?.offers?.itemCondition?.replace("Condition", "") || null,
-      color: ldJson?.color || null,
-      photos: photos.length > 0 ? photos : ldJson?.image ? [ldJson.image] : [],
-      favouriteCount: favouriteMatch ? parseInt(favouriteMatch[1], 10) : 0,
-      // ponytail: the item page no longer carries view count or timestamps.
-      viewCount: 0,
-      isSold: ldJson?.offers?.availability === "OutOfStock",
-      soldAt: null,
-      createdAt: "",
-      updatedAt: "",
-      seller: {
-        id: sellerId,
-        username: "",
-        rating: null,
-        ratingCount: 0,
-        itemCount: 0,
-        followerCount: 0,
-        lastSeenAt: null,
-        country,
-        profileUrl: sellerId ? `${baseUrl}/member/${sellerId}` : ""
-      },
-      scrapedAt: new Date().toISOString()
-    };
   }
 
   private getProxyDispatcher(): unknown {

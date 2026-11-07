@@ -64,9 +64,23 @@ export function buildUserUrl(userId: number, country: string): string {
   return `${getBaseUrl(country)}/api/v2/users/${userId}`;
 }
 
-/** The seller's own listings; returns an empty list unless the session is logged in. */
-export function buildWardrobeUrl(userId: number, country: string, page = 1, perPage = 24): string {
-  return `${getBaseUrl(country)}/api/v2/wardrobe/${userId}/items?page=${page}&per_page=${perPage}`;
+/** The seller's active listings. Anonymous sessions get them too; per_page goes up to 96. */
+export function buildWardrobeUrl(userId: number, country: string, page = 1, perPage = 24, order?: string): string {
+  const url = `${getBaseUrl(country)}/api/v2/wardrobe/${userId}/items?page=${page}&per_page=${perPage}`;
+  return order ? `${url}&order=${order}` : url;
+}
+
+/**
+ * The pricing service behind an item page's price breakdown: Vinted fee,
+ * postage, and the optional Item Verification (null when not offered, and
+ * null for every listing when the session is anonymous).
+ */
+export function buildItemServicesUrl(itemId: number, country: string): string {
+  return `${getApiBaseUrl(country)}/pricing/public/api/v1/items/${itemId}/services`;
+}
+
+export function buildBrandSearchUrl(keyword: string, country: string): string {
+  return `${getBaseUrl(country)}/api/v2/brands?keyword=${encodeURIComponent(keyword)}`;
 }
 
 export function buildUserFeedbacksUrl(userId: number, country: string, page = 1, perPage = 10): string {

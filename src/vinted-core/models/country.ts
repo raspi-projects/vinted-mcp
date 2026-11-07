@@ -38,6 +38,12 @@ export function getCountry(code: string): VintedCountry {
   return country;
 }
 
+/** Country used when a tool call names none; set VINTED_DEFAULT_COUNTRY to change it. */
+export function defaultCountry(): string {
+  const code = process.env.VINTED_DEFAULT_COUNTRY?.trim().toLowerCase();
+  return code && VINTED_COUNTRIES[code] ? code : "uk";
+}
+
 export function getBaseUrl(country: string): string {
   return `https://${getCountry(country).domain}`;
 }

@@ -3,7 +3,8 @@ import type { VintedAPIClient } from "../vinted-core";
 export const comparePricesTool = {
   name: "compare_prices",
   description:
-    "Compare prices for a search query across multiple Vinted countries. Great for finding arbitrage opportunities.",
+    "Compare prices for a search query across multiple Vinted countries. Vinted serves the catalogue of the caller's region, so " +
+    "from one location every country can return the same listings; identical results mean the comparison did not happen.",
   inputSchema: {
     type: "object",
     properties: {

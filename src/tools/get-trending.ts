@@ -1,4 +1,5 @@
-import type { VintedAPIClient } from "../vinted-core";
+import { defaultCountry, type VintedAPIClient } from "../vinted-core";
+import { countryProperty } from "./shared";
 
 export const getTrendingTool = {
   name: "get_trending",
@@ -8,7 +9,7 @@ export const getTrendingTool = {
     type: "object",
     properties: {
       query: { type: "string", description: "Search keywords (optional)" },
-      country: { type: "string", description: "Country code", default: "fr" },
+      country: countryProperty,
       categoryId: { type: "integer", description: "Category ID filter" },
       limit: { type: "integer", description: "Max items to return", default: 20 }
     }
@@ -16,7 +17,7 @@ export const getTrendingTool = {
 };
 
 export async function handleGetTrending(client: VintedAPIClient, args: any): Promise<string> {
-  const country = args.country || "fr";
+  const country = args.country || defaultCountry();
   const limit = Math.min(args.limit || 20, 100);
 
   const result = await client.searchItems({

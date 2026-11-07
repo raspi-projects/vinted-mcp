@@ -40,7 +40,11 @@ test("lists tools", async () => {
 
   assert.deepEqual(names.sort(), [
     "compare_prices",
+    "find_brand",
+    "find_category",
+    "find_deals",
     "get_item",
+    "get_item_photos",
     "get_seller",
     "get_trending",
     "like_item",
@@ -159,8 +163,8 @@ test("reads countries and categories resources", async () => {
 
   const categoriesRes = await client.readResource({ uri: "vinted://categories" });
   const categories = JSON.parse(getText(categoriesRes));
-  assert.ok(Array.isArray(categories));
-  assert.ok(categories.length > 0);
+  assert.ok(Array.isArray(categories.categories));
+  assert.ok(categories.categories.some((category) => category.path === "Men > Clothing"));
 });
 
 test(
@@ -194,6 +198,7 @@ test(
     assert.ok(item.title, "item detail should carry a title");
     assert.ok(item.description, "item detail should carry a description");
     assert.ok(item.seller.username, "item detail should carry a resolved seller");
+    assert.ok(itemResult.content.some((entry) => entry.type === "image"), "get_item should attach photos");
 
     const sellerId = item.seller.id;
     assert.ok(sellerId > 0, "item detail should carry a seller id");

@@ -42,6 +42,23 @@ export function cookieHeaderFromMap(cookies: Record<string, string>): string {
     .join("; ");
 }
 
+/**
+ * Keeps only the cookies that belong to this country's Vinted domain. Browser
+ * contexts hold every site's cookies (a profile used for "Sign in with
+ * Google" holds Google's), and all of them used to go out in the Cookie header.
+ */
+export function vintedCookieMap(cookies: Array<{ name: string; value: string; domain?: string }>, baseDomain: string): Record<string, string> {
+  const site = baseDomain.replace(/^www\./, "").toLowerCase();
+  const out: Record<string, string> = {};
+  for (const cookie of cookies) {
+    const domain = String(cookie.domain || "").replace(/^\./, "").toLowerCase();
+    if (domain === site || domain.endsWith(`.${site}`)) {
+      out[cookie.name] = cookie.value;
+    }
+  }
+  return out;
+}
+
 export function runtimeRequire(moduleName: string): any {
   return require(moduleName);
 }

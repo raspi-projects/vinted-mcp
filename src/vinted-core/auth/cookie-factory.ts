@@ -1,7 +1,7 @@
 import { TokenCache } from "./token-cache";
 import { getBaseUrl, getCountry } from "../models/country";
 import type { AuthSession } from "../types";
-import { defaultDesktopUserAgent, runtimeRequire } from "./utils";
+import { defaultDesktopUserAgent, runtimeRequire, vintedCookieMap } from "./utils";
 
 type OptionalChromium = {
   use?: (plugin: unknown) => void;
@@ -47,11 +47,7 @@ export class CookieFactory {
         // Consent button can be absent depending on region or cached consent.
       }
 
-      const allCookies = await context.cookies();
-      const cookies: Record<string, string> = {};
-      for (const cookie of allCookies) {
-        cookies[cookie.name] = cookie.value;
-      }
+      const cookies = vintedCookieMap(await context.cookies(), countryInfo.domain);
 
       const csrfToken = cookies.csrf_token || cookies._csrf_token || "";
       const response = await page.evaluate(async (params: { baseUrl: string; csrfToken: string }) => {

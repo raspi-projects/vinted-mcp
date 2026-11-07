@@ -13,14 +13,30 @@ import { getRuntimeConfig } from "./env";
 import { getCategoriesData, categoriesResource } from "./resources/categories";
 import { getCountriesData, countriesResource } from "./resources/countries";
 import { comparePricesTool, handleComparePrices } from "./tools/compare-prices";
+import { findBrandTool, handleFindBrand } from "./tools/find-brand";
+import { findCategoryTool, handleFindCategory } from "./tools/find-category";
+import { findDealsTool, handleFindDeals } from "./tools/find-deals";
 import { getItemTool, handleGetItem } from "./tools/get-item";
+import { getItemPhotosTool, handleGetItemPhotos } from "./tools/get-item-photos";
 import { getSellerTool, handleGetSeller } from "./tools/get-seller";
 import { getTrendingTool, handleGetTrending } from "./tools/get-trending";
 import { handleLikeItem, likeItemTool } from "./tools/like-item";
 import { handleSearchItems, searchItemsTool } from "./tools/search-items";
-import { VintedAPIClient } from "./vinted-core";
+import type { ToolResult } from "./tools/shared";
+import { defaultCountry, VintedAPIClient } from "./vinted-core";
 
-const TOOLS = [searchItemsTool, getItemTool, getSellerTool, comparePricesTool, getTrendingTool, likeItemTool];
+const TOOLS = [
+  searchItemsTool,
+  findDealsTool,
+  getItemTool,
+  getItemPhotosTool,
+  getSellerTool,
+  findBrandTool,
+  findCategoryTool,
+  comparePricesTool,
+  getTrendingTool,
+  likeItemTool
+];
 const RESOURCES = [countriesResource, categoriesResource];
 const RESOURCE_TEMPLATES = [
   {
@@ -112,7 +128,7 @@ export function createServer(): Server {
   const server = new Server(
     {
       name: "vinted-mcp",
-      version: "1.0.1"
+      version: "0.3.0"
     },
     {
       capabilities: {
@@ -150,14 +166,26 @@ export function createServer(): Server {
     const apiClient = getClient();
 
     try {
-      let result: string;
+      let result: ToolResult;
 
       switch (name) {
         case "search_items":
           result = await handleSearchItems(apiClient, args);
           break;
+        case "find_deals":
+          result = await handleFindDeals(apiClient, args);
+          break;
         case "get_item":
           result = await handleGetItem(apiClient, args);
+          break;
+        case "get_item_photos":
+          result = await handleGetItemPhotos(apiClient, args);
+          break;
+        case "find_brand":
+          result = await handleFindBrand(apiClient, args);
+          break;
+        case "find_category":
+          result = await handleFindCategory(apiClient, args);
           break;
         case "get_seller":
           result = await handleGetSeller(apiClient, args);
@@ -176,7 +204,7 @@ export function createServer(): Server {
       }
 
       return {
-        content: [{ type: "text", text: result }]
+        content: typeof result === "string" ? [{ type: "text", text: result }] : result
       };
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
@@ -311,7 +339,7 @@ export function createServer(): Server {
 
     if (name === "screen_seller") {
       const sellerId = args.sellerId || "seller_id";
-      const country = args.country || "fr";
+      const country = args.country || defaultCountry();
       return {
         description: "Review a seller profile and risk signals.",
         messages: [
@@ -329,7 +357,7 @@ export function createServer(): Server {
     }
 
     if (name === "trending_report") {
-      const country = args.country || "fr";
+      const country = args.country || defaultCountry();
       const query = args.query ? ` for query ${args.query}` : "";
       const limit = args.limit || "20";
       return {
@@ -350,7 +378,7 @@ export function createServer(): Server {
 
     if (name === "search_item_with_filters") {
       const item = args.item || "item";
-      const country = args.country || "fr";
+      const country = args.country || defaultCountry();
       const size = args.size || "M";
       const brandClause = args.brand ? ` and brand ${args.brand}` : "";
       const maxPriceClause = args.maxPrice ? ` and max price ${args.maxPrice}` : "";
@@ -375,7 +403,7 @@ export function createServer(): Server {
 
     if (name === "buy_or_skip_decision") {
       const itemId = args.itemId || "item_id";
-      const country = args.country || "fr";
+      const country = args.country || defaultCountry();
       const compareQuery = args.compareQuery || "the same item keyword";
       const compareCountries = args.compareCountries || country;
       const budgetClause = args.budget ? ` Budget limit is ${args.budget}.` : "";

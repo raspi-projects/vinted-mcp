@@ -5,7 +5,7 @@ export { PlaywrightAuth } from "./auth/playwright-auth";
 export { TokenCache } from "./auth/token-cache";
 export { VintedAPIClient } from "./api/client";
 export { RateLimiter } from "./api/rate-limiter";
-export { VINTED_COUNTRIES, SUPPORTED_COUNTRY_CODES, getCountry, getBaseUrl, getApiBaseUrl } from "./models/country";
+export { VINTED_COUNTRIES, SUPPORTED_COUNTRY_CODES, defaultCountry, getCountry, getBaseUrl, getApiBaseUrl } from "./models/country";
 export {
   parseItem,
   parseSeller,
@@ -18,5 +18,6 @@ export {
   buildUserUrl,
   buildUserFeedbacksUrl,
   buildWardrobeUrl,
-  buildFavouriteToggleUrl
+  buildFavouriteToggleUrl,
+  buildBrandSearchUrl
 } from "./api/endpoints";
