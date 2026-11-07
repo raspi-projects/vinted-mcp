@@ -7,4 +7,5 @@ declare const process: {
   cwd?: () => string;
   on?: (...args: any[]) => void;
   exit?: (code?: number) => never;
+  stdout?: { write: (chunk: string, callback?: () => void) => boolean };
 };

@@ -10,14 +10,15 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "bundle": "esbuild src/bin/cli.ts --bundle --platform=node --target=node22 --outfile=dist/bundle.js --format=cjs --external:@modelcontextprotocol/sdk --external:playwright --external:playwright-core --external:playwright-extra --external:puppeteer-extra-plugin-stealth",
+    "bundle": "esbuild src/bin/cli.ts --bundle --platform=node --target=node22 --outfile=dist/bundle.js --format=cjs --external:@modelcontextprotocol/sdk --external:playwright --external:playwright-core --external:playwright-extra --external:puppeteer-extra-plugin-stealth --external:zxing-wasm",
     "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true }); require('fs').rmSync('dist-ts', { recursive: true, force: true });\"",
     "start": "node dist/bundle.js",
     "test": "node --test tests/*.test.cjs",
     "update-categories": "npm run build && node scripts/update-categories.cjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0"
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zxing-wasm": "^2.2.4"
   },
   "devDependencies": {
     "esbuild": "^0.25.12",

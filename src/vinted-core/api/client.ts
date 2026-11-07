@@ -7,6 +7,7 @@ import { getBaseUrl } from "../models/country";
 import { buildSellerReport } from "../analysis/seller";
 import {
   buildBrandSearchUrl,
+  buildColoursUrl,
   buildFavouriteToggleUrl,
   buildItemPageUrl,
   buildItemServicesUrl,
@@ -17,6 +18,7 @@ import {
 } from "./endpoints";
 import { RateLimiter } from "./rate-limiter";
 import { parseItemPage, type ItemPagePhoto } from "../parsers/item-page";
+import { QrRegistry, qrIssuer, readQrCodes } from "../qr";
 import { amount, parseItem, parseSearchResponse, parseSeller, unixToIso, type ParsedItem } from "../parsers/response-parser";
 import type { AuthSession, ClientOptions, SearchParams } from "../types";
 import { getRandomUserAgent, getBrowserHeaders, runtimeRequire } from "../auth/utils";
@@ -38,6 +40,8 @@ export class VintedAPIClient {
   private cookieFactory: CookieFactory | null = null;
   private consecutiveFailures = 0;
   private readonly wardrobeCache = new Map<string, { at: number; items: any[] }>();
+  private colours: Promise<Array<{ id: number; title: string }>> | null = null;
+  private readonly qrRegistry = new QrRegistry();
   private readonly itemCache = new Map<string, { at: number; item: ReturnType<VintedAPIClient["loadItem"]> }>();
   private readonly sessionRequestCount = new Map<string, number>();
   private readonly sessionLocks = new Map<string, Promise<AuthSession>>();
@@ -105,6 +109,25 @@ export class VintedAPIClient {
       requiresAuthenticityCheck: Boolean(brand.requires_authenticity_check),
       isLuxury: Boolean(brand.is_luxury)
     }));
+  }
+
+  /** Resolves colour names ("navy", "light blue") to Vinted's colour ids. */
+  async resolveColours(names: string[], country: string) {
+    if (!this.colours) {
+      this.colours = this.makeRequest(buildColoursUrl(country), country).then((data) =>
+        (data.colors || []).map((colour: any) => ({ id: colour.id, title: colour.title }))
+      );
+      this.colours.catch(() => (this.colours = null));
+    }
+
+    const colours = await this.colours;
+    return names.map((name) => {
+      const match = colours.find((colour) => colour.title.toLowerCase() === name.trim().toLowerCase());
+      if (!match) {
+        throw new Error(`Unknown colour "${name}". Vinted's colours: ${colours.map((colour) => colour.title).join(", ")}`);
+      }
+      return match;
+    });
   }
 
   /** Resolves brand names to ids, preferring an exact title match over the most-listed partial one. */
@@ -229,8 +252,60 @@ export class VintedAPIClient {
     });
   }
 
+  /**
+   * Decodes QR codes in a listing's original photos (cached for a week) and
+   * says, per code, whether it links into Ralph Lauren's ID system and which
+   * other listings showed the same code. Originals are JPEG; the 800px page
+   * photos are WebP, which the decoder can't read, so a listing whose
+   * originals aren't in the seller's wardrobe can't be checked.
+   */
+  async scanQrLabels(id: number, country: string, options: { useCache?: boolean } = {}) {
+    let scan = options.useCache === false ? null : this.qrRegistry.cachedScan(id);
+    const cached = Boolean(scan);
+
+    if (!scan) {
+      const item = await this.getItem(id, country);
+      const originals = item.photos.filter((photo) => photo.fullSizeUrl);
+      const codes: Array<{ photo: number; text: string }> = [];
+      await Promise.all(
+        originals.map(async (photo) => {
+          const image = await this.fetchImageBytes(photo.fullSizeUrl as string).catch(() => null);
+          const texts = image ? await readQrCodes(image.bytes).catch(() => []) : [];
+          texts.forEach((text) => codes.push({ photo: photo.index, text }));
+        })
+      );
+      codes.sort((a, b) => a.photo - b.photo);
+      scan = { checkedAt: new Date().toISOString(), photosChecked: originals.length, originals: originals.length > 0, codes };
+      this.qrRegistry.record(id, (item.seller as any)?.id ?? null, scan);
+    }
+
+    const byText = new Map<string, number[]>();
+    for (const { photo, text } of scan.codes) {
+      byText.set(text, [...(byText.get(text) || []), photo]);
+    }
+
+    return {
+      checkedAt: scan.checkedAt,
+      cached,
+      photosChecked: scan.photosChecked,
+      originals: scan.originals,
+      codes: [...byText.entries()].map(([text, photos]) => ({
+        text,
+        photos,
+        ...qrIssuer(text),
+        alsoInListings: this.qrRegistry.otherListings(text, id)
+      }))
+    };
+  }
+
   /** Downloads a photo from Vinted's image CDN as base64, for MCP image content. */
   async fetchImage(url: string): Promise<{ data: string; mimeType: string; bytes: number }> {
+    const image = await this.fetchImageBytes(url);
+    const { Buffer } = runtimeRequire("buffer");
+    return { data: Buffer.from(image.bytes).toString("base64"), mimeType: image.mimeType, bytes: image.bytes.length };
+  }
+
+  private async fetchImageBytes(url: string): Promise<{ bytes: Uint8Array; mimeType: string }> {
     if (!/^https:\/\/images\d*\.vinted\.net\//.test(url)) {
       throw new Error(`Not a Vinted image URL: ${url}`);
     }
@@ -244,17 +319,12 @@ export class VintedAPIClient {
       throw new Error(`Photo fetch failed: ${response.status} ${response.statusText}`);
     }
 
-    const { Buffer } = runtimeRequire("buffer");
-    const buffer = Buffer.from(await response.arrayBuffer());
-    if (buffer.length > VintedAPIClient.MAX_IMAGE_BYTES) {
-      throw new Error(`Photo is ${Math.round(buffer.length / 1024)} KB, over the ${VintedAPIClient.MAX_IMAGE_BYTES / 1024} KB limit`);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length > VintedAPIClient.MAX_IMAGE_BYTES) {
+      throw new Error(`Photo is ${Math.round(bytes.length / 1024)} KB, over the ${VintedAPIClient.MAX_IMAGE_BYTES / 1024} KB limit`);
     }
 
-    return {
-      data: buffer.toString("base64"),
-      mimeType: (response.headers.get("content-type") || "image/jpeg").split(";")[0].trim(),
-      bytes: buffer.length
-    };
+    return { bytes, mimeType: (response.headers.get("content-type") || "image/jpeg").split(";")[0].trim() };
   }
 
   /** The wardrobe is the only API left that has a listing's original photos and upload times. */
@@ -632,7 +702,7 @@ export class VintedAPIClient {
     return body.includes("cf-challenge") || body.includes("Just a moment") || body.includes("Attention Required");
   }
 
-  private async fetchItemPage(id: number, country: string): Promise<string> {
+  private async fetchItemPage(id: number, country: string, retryCount = 0): Promise<string> {
     const dispatcher = this.getProxyDispatcher();
 
     let cookieHeader = "";
@@ -656,6 +726,14 @@ export class VintedAPIClient {
         ...(dispatcher ? { dispatcher } : {})
       } as RequestInit)
     );
+
+    // Item pages are rate-limited harder than the API; back off like makeRequest does.
+    if ((response.status === 429 || response.status === 503) && retryCount < this.maxRetries) {
+      const pauseMs = parseRetryAfter(response.headers.get("retry-after")) ?? this.computeBackoff(retryCount + 1);
+      this.rateLimiter.pause(pauseMs);
+      await sleep(pauseMs);
+      return this.fetchItemPage(id, country, retryCount + 1);
+    }
 
     if (!response.ok) {
       throw new Error(`Item page fetch failed: ${response.status} ${response.statusText}`);

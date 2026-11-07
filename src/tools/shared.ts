@@ -9,6 +9,49 @@ export const countryProperty = {
   description: `Country code (${SUPPORTED_COUNTRY_CODES.join(", ")}). Defaults to VINTED_DEFAULT_COUNTRY, else uk.`
 };
 
+export type QrScan = Awaited<ReturnType<VintedAPIClient["scanQrLabels"]>>;
+
+/**
+ * One verdict per listing from its QR scan. A code another seller's listing
+ * also shows suggests a genuine label copied onto fakes; the same seller
+ * showing it again is usually a relisted item.
+ */
+export function qrLabelStatus(scan: QrScan): { status: "rl-label" | "cloned" | "other-site" | "none" | "unchecked"; text: string } {
+  if (!scan.originals) {
+    return { status: "unchecked", text: "not checked: original photos unavailable" };
+  }
+
+  const cloned = scan.codes.find((code) => code.alsoInListings.some((other) => !other.sameSeller));
+  if (cloned) {
+    const others = cloned.alsoInListings.filter((other) => !other.sameSeller).map((other) => other.itemId);
+    return { status: "cloned", text: `same QR code as another seller's listing (${others.slice(0, 3).join(", ")}): likely a copied label` };
+  }
+
+  const rl = scan.codes.find((code) => code.issuer === "ralph-lauren");
+  if (rl) {
+    const relisted = rl.alsoInListings.length ? `; also in this seller's listing ${rl.alsoInListings[0].itemId}` : "";
+    return { status: "rl-label", text: `Ralph Lauren QR label in photo ${rl.photos.join(", ")} (${rl.host})${relisted}` };
+  }
+  if (scan.codes.length) {
+    return { status: "other-site", text: `QR code links to ${scan.codes[0].host || "plain text"}, not Ralph Lauren's ID system` };
+  }
+  return { status: "none", text: `no QR code found in ${scan.photosChecked} original photos` };
+}
+
+/** Runs `fn` over `items` with at most `limit` running at once, keeping order. */
+export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 export function jsonBlock(value: unknown): ToolContent {
   return { type: "text", text: JSON.stringify(value, null, 2) };
 }
@@ -93,6 +136,11 @@ export function itemTarget(args: any): { itemId: number; country: string } {
     return { itemId: Number(args.itemId), country: args.country || defaultCountry() };
   }
   throw new Error("Either itemId or url must be provided");
+}
+
+export async function colourFilter(client: VintedAPIClient, args: any, country: string) {
+  const resolved = args.colours?.length ? await client.resolveColours(args.colours, country) : [];
+  return { ids: resolved.length ? resolved.map((colour) => colour.id) : undefined, resolved };
 }
 
 /** Brand names in `brands` resolve to IDs and join any `brandIds` given directly. */

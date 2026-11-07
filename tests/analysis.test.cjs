@@ -181,3 +181,44 @@ test("reports Item Verification only when Vinted lists it", () => {
     [true, true, true]
   );
 });
+
+test("decodes QR labels and recognises Ralph Lauren's ID links", async () => {
+  const fs = require("fs");
+  const { writeBarcode, prepareZXingModule } = require("zxing-wasm/full");
+  prepareZXingModule({ overrides: { wasmBinary: fs.readFileSync(require.resolve("zxing-wasm/full/zxing_full.wasm")) }, fireImmediately: true });
+  const { readQrCodes, qrIssuer } = require("../dist-ts/vinted-core/qr.js");
+
+  const written = await writeBarcode("https://q-rl.us/7MQ2XLNR1JWR77C", { format: "QRCode", scale: 4 });
+  const png = new Uint8Array(await written.image.arrayBuffer());
+  assert.deepEqual(await readQrCodes(png), ["https://q-rl.us/7MQ2XLNR1JWR77C"]);
+
+  assert.equal(qrIssuer("https://q-rl.us/7MQ2XLNR1JWR77C").issuer, "ralph-lauren");
+  assert.equal(qrIssuer("https://j.tn.gg/N4JC0RxTP0LFSxD").issuer, "ralph-lauren");
+  assert.equal(qrIssuer("https://fake-rl-check.example/abc").issuer, "other-site");
+  assert.equal(qrIssuer("RL123456").issuer, "not-a-link");
+});
+
+test("tells cloned QR labels from relisted items", () => {
+  const fs = require("fs");
+  const os = require("os");
+  const path = require("path");
+  const { QrRegistry } = require("../dist-ts/vinted-core/qr.js");
+  const { qrLabelStatus } = require("../dist-ts/tools/shared.js");
+
+  const registry = new QrRegistry(path.join(fs.mkdtempSync(path.join(os.tmpdir(), "qr-")), "seen.json"));
+  const scan = (text) => ({ checkedAt: new Date().toISOString(), photosChecked: 6, originals: true, codes: [{ photo: 5, text }] });
+  const status = (itemId, text) =>
+    qrLabelStatus({
+      originals: true,
+      photosChecked: 6,
+      codes: [{ text, photos: [5], issuer: "ralph-lauren", host: "q-rl.us", alsoInListings: registry.otherListings(text, itemId) }]
+    }).status;
+
+  registry.record(1, 100, scan("https://q-rl.us/AAA"));
+  registry.record(2, 100, scan("https://q-rl.us/AAA"));
+  assert.equal(status(2, "https://q-rl.us/AAA"), "rl-label", "same seller again: a relisting");
+
+  registry.record(3, 200, scan("https://q-rl.us/AAA"));
+  assert.equal(status(3, "https://q-rl.us/AAA"), "cloned", "another seller with the same code: a copied label");
+  assert.ok(registry.cachedScan(1));
+});

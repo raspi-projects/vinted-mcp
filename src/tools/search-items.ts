@@ -1,6 +1,16 @@
 import { defaultCountry, type VintedAPIClient } from "../vinted-core";
-import { sizeMatches } from "../vinted-core/parsers/response-parser";
-import { brandFilter, countryProperty, jsonBlock, listingSummary, thumbnailBlocks, type ToolResult } from "./shared";
+import { sizeMatches, type ParsedItem } from "../vinted-core/parsers/response-parser";
+import {
+  brandFilter,
+  colourFilter,
+  countryProperty,
+  jsonBlock,
+  listingSummary,
+  mapLimit,
+  qrLabelStatus,
+  thumbnailBlocks,
+  type ToolResult
+} from "./shared";
 
 export const searchFilterProperties = {
   query: { type: "string", description: "Search keywords; optional when filtering by brand or category" },
@@ -14,6 +24,16 @@ export const searchFilterProperties = {
   categoryId: {
     type: "integer",
     description: "Vinted category ID from find_category, e.g. 5492 for Men > Polo shirts. A parent category includes its children."
+  },
+  categoryIds: {
+    type: "array",
+    items: { type: "integer" },
+    description: "Several category IDs at once, e.g. [79, 13] for men's and women's jumpers"
+  },
+  colours: {
+    type: "array",
+    items: { type: "string" },
+    description: 'Colours as Vinted names them, e.g. ["Navy"] or ["Light blue", "Blue"]. Sellers pick them, so some are wrong or missing.'
   },
   sizes: {
     type: "array",
@@ -50,6 +70,11 @@ export const searchItemsTool = {
         type: "boolean",
         description: "Attach a 310x430 photo of each returned item (up to 24), labelled with its rank",
         default: false
+      },
+      checkQr: {
+        type: "boolean",
+        description: "Decode QR codes in each returned item's original photos and add qrLabel (slower)",
+        default: false
       }
     }
   }
@@ -60,11 +85,14 @@ export async function handleSearchItems(client: VintedAPIClient, args: any): Pro
   const limit = Math.min(Math.max(args.limit || 20, 1), 96);
   const sizes: string[] = args.sizes || [];
   const brands = await brandFilter(client, args, country);
+  const colours = await colourFilter(client, args, country);
 
   const result = await client.searchItems({
     query: args.query,
     country,
     categoryId: args.categoryId,
+    categoryIds: args.categoryIds,
+    colorIds: colours.ids,
     brandIds: brands.ids,
     priceMin: args.priceMin,
     priceMax: args.priceMax,
@@ -76,13 +104,21 @@ export async function handleSearchItems(client: VintedAPIClient, args: any): Pro
   });
 
   const items = result.items.filter((item) => sizeMatches(item.size, sizes)).slice(0, limit);
+  const qr = args.checkQr
+    ? await mapLimit(items, 1, (item: ParsedItem) =>
+        client
+          .scanQrLabels(item.id, country)
+          .then(qrLabelStatus)
+          .catch((error: any) => ({ status: "unchecked", text: `not checked: ${error.message}` }))
+      )
+    : null;
   const summary = jsonBlock({
     totalFound: result.totalCount,
     note: result.totalCount >= 960 ? "Vinted caps totalFound at 960" : undefined,
     returned: items.length,
     country,
     brands: brands.resolved.length ? brands.resolved : undefined,
-    items: items.map((item, i) => ({ rank: i + 1, ...listingSummary(item) }))
+    items: items.map((item, i) => ({ rank: i + 1, qrLabel: qr?.[i], ...listingSummary(item) }))
   });
 
   return args.includeThumbnails ? [summary, ...(await thumbnailBlocks(client, items))] : [summary];

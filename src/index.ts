@@ -124,6 +124,69 @@ const PROMPTS = [
   }
 ];
 
+export function createClient(): VintedAPIClient {
+  const runtime = getRuntimeConfig();
+  return new VintedAPIClient({
+    authMode: runtime.authMode,
+    proxyUrl: runtime.proxyUrl,
+    maxConcurrency: runtime.maxConcurrency,
+    requestDelayMs: runtime.requestDelayMs,
+    maxRetries: runtime.maxRetries
+  });
+}
+
+/** Runs one tool and wraps its result as MCP content; used by the server and the `call` CLI command. */
+export async function callTool(apiClient: VintedAPIClient, name: string, args: any) {
+  try {
+    let result: ToolResult;
+
+    switch (name) {
+      case "search_items":
+        result = await handleSearchItems(apiClient, args);
+        break;
+      case "find_deals":
+        result = await handleFindDeals(apiClient, args);
+        break;
+      case "get_item":
+        result = await handleGetItem(apiClient, args);
+        break;
+      case "get_item_photos":
+        result = await handleGetItemPhotos(apiClient, args);
+        break;
+      case "find_brand":
+        result = await handleFindBrand(apiClient, args);
+        break;
+      case "find_category":
+        result = await handleFindCategory(apiClient, args);
+        break;
+      case "get_seller":
+        result = await handleGetSeller(apiClient, args);
+        break;
+      case "compare_prices":
+        result = await handleComparePrices(apiClient, args);
+        break;
+      case "get_trending":
+        result = await handleGetTrending(apiClient, args);
+        break;
+      case "like_item":
+        result = await handleLikeItem(apiClient, args);
+        break;
+      default:
+        throw new Error(`Unknown tool: ${name}`);
+    }
+
+    return {
+      content: typeof result === "string" ? [{ type: "text", text: result }] : result
+    };
+  } catch (error: any) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      content: [{ type: "text", text: `Error: ${message}` }],
+      isError: true
+    };
+  }
+}
+
 export function createServer(): Server {
   const server = new Server(
     {
@@ -143,16 +206,8 @@ export function createServer(): Server {
 
   function getClient(): VintedAPIClient {
     if (!client) {
-      const runtime = getRuntimeConfig();
-      client = new VintedAPIClient({
-        authMode: runtime.authMode,
-        proxyUrl: runtime.proxyUrl,
-        maxConcurrency: runtime.maxConcurrency,
-        requestDelayMs: runtime.requestDelayMs,
-        maxRetries: runtime.maxRetries
-      });
+      client = createClient();
     }
-
     return client;
   }
 
@@ -160,60 +215,9 @@ export function createServer(): Server {
     tools: TOOLS
   }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name } = request.params;
-    const args = request.params.arguments || {};
-    const apiClient = getClient();
-
-    try {
-      let result: ToolResult;
-
-      switch (name) {
-        case "search_items":
-          result = await handleSearchItems(apiClient, args);
-          break;
-        case "find_deals":
-          result = await handleFindDeals(apiClient, args);
-          break;
-        case "get_item":
-          result = await handleGetItem(apiClient, args);
-          break;
-        case "get_item_photos":
-          result = await handleGetItemPhotos(apiClient, args);
-          break;
-        case "find_brand":
-          result = await handleFindBrand(apiClient, args);
-          break;
-        case "find_category":
-          result = await handleFindCategory(apiClient, args);
-          break;
-        case "get_seller":
-          result = await handleGetSeller(apiClient, args);
-          break;
-        case "compare_prices":
-          result = await handleComparePrices(apiClient, args);
-          break;
-        case "get_trending":
-          result = await handleGetTrending(apiClient, args);
-          break;
-        case "like_item":
-          result = await handleLikeItem(apiClient, args);
-          break;
-        default:
-          throw new Error(`Unknown tool: ${name}`);
-      }
-
-      return {
-        content: typeof result === "string" ? [{ type: "text", text: result }] : result
-      };
-    } catch (error: any) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        content: [{ type: "text", text: `Error: ${message}` }],
-        isError: true
-      };
-    }
-  });
+  server.setRequestHandler(CallToolRequestSchema, async (request) =>
+    callTool(getClient(), request.params.name, request.params.arguments || {})
+  );
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
     resources: RESOURCES

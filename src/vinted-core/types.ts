@@ -24,6 +24,9 @@ export interface SearchParams {
   query?: string;
   country: string;
   categoryId?: number;
+  /** Several categories at once, e.g. men's and women's jumpers. */
+  categoryIds?: number[];
+  colorIds?: number[];
   brandIds?: number[];
   sizeIds?: number[];
   priceMin?: number;

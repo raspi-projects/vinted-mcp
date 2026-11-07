@@ -23,9 +23,14 @@ pages and APIs, which Vinted's terms don't permit for automated use; keep reques
   new-with-tags stock and repeated titles. `flags` lists what stands out.
 - **Full cost and Item Verification.** `get_item` reports the Vinted fee and postage from Vinted's
   pricing service, and whether Vinted's £10 Item Verification is offered (see the limits below).
+- **QR labels.** Recent genuine Ralph Lauren pieces carry a gold label with a QR code. The server
+  finds and decodes QR codes in a listing's original photos (zxing-wasm, no native code), says whether
+  each links into RL's product-ID system (`q-rl.us`, `tn.gg`), and remembers codes it has seen
+  (`~/.vinted-mcp/qr-seen.json`) so a code in another seller's listing is flagged as a copied label.
+  Codes are decoded, never followed: opening one records a scan with RL, so that's the buyer's step.
 - **Real filters.** `find_brand` resolves brand names to IDs (Ralph Lauren = 88, Polo Ralph Lauren =
   4273); `find_category` searches a snapshot of Vinted's real 3,081-category tree (the upstream list was
-  made up).
+  made up); `colours` takes Vinted's colour names; `categoryIds` takes several categories at once.
 - **Correct money and labels.** Prices from sellers abroad are shown converted, with the seller's own
   price and location; conditions come back in English (the catalogue API answers in French).
 - **Fixes.** Logged-in mode used to send *every* cookie in the browser profile (Google's, Facebook's…)
@@ -50,9 +55,9 @@ ask whether it's legit.
 
 | Tool | What it does |
 |---|---|
-| `find_deals` | Samples 1–5 pages of 96 listings for a search (brands, category, sizes, condition), returns asking-price statistics and the listings at or below a fraction of the median, cheapest first, with thumbnails. |
+| `find_deals` | Samples 1–5 pages of 96 listings for a search (brands, categories, colours, sizes, condition), returns asking-price statistics and the listings at or below a fraction of the median, cheapest first, with thumbnails. `checkQr` adds a QR label verdict per deal; `requireQrLabel` returns only listings with a Ralph Lauren label. |
 | `search_items` | Search with brand names or IDs, category, sizes, condition, price range and sort; optional thumbnails. |
-| `get_item` | Details, photos (none / 800px / originals), costs, Item Verification, seller summary and badges. |
+| `get_item` | Details, photos (none / 800px / originals), costs, Item Verification, QR labels, seller summary and badges. |
 | `get_item_photos` | Chosen photos at original size, up to 6 per call. |
 | `get_seller` | Trust report: reviews, activity, verifications, location, bundle discounts, listing scan, flags. |
 | `find_brand` | Brand IDs by name, with Vinted's "requires authenticity check" flag. |
@@ -64,6 +69,18 @@ ask whether it's legit.
 Resources: `vinted://countries`, `vinted://categories` (top three levels), and templates for items,
 sellers and searches.
 
+### From scripts: `call`
+
+`node dist/bundle.js call <tool> '<json arguments>'` runs one tool and prints its MCP result as JSON
+(images as base64); it exits 1 when the tool reports an error. The hub's `vinted` connector uses it.
+
+### In the hub: the `vinted` block
+
+The connector lives in the hub (`~/projects/hub/content/.connectors/vinted.py`, versioned with the hub's
+content). A fenced block named `vinted` takes the same filters as `find_deals` plus `qr: off | show |
+only`, and shows price statistics, a numbered contact sheet of thumbnails and a table of listings,
+refreshed every 30 minutes. See the hub page `lars-space/vinted` for its keys.
+
 ## Limits worth knowing
 
 - **Region follows your IP.** Vinted serves the catalogue for the caller's region whatever domain is
@@ -74,7 +91,10 @@ sellers and searches.
   eligible category, UK seller); the diamond badge on the listing settles it.
 - **Asking prices, not sold prices.** Medians describe what sellers ask today.
 - **Originals come from the seller's wardrobe.** Their URLs only appear there, so for sellers with
-  hundreds of listings an older item may only be available at 800px.
+  hundreds of listings an older item may only be available at 800px, and then its QR label can't be
+  decoded (the decoder reads JPEG, and the 800px photos are WebP).
+- **Item pages are rate-limited.** QR scans fetch one each (3–4 s with backoff), so they run one at a
+  time and are cached for a week.
 
 ## Signing in (optional)
 

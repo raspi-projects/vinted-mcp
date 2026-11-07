@@ -1,6 +1,6 @@
 import type { VintedAPIClient } from "../vinted-core";
 import { categoryPath } from "../resources/categories";
-import { countryProperty, itemTarget, jsonBlock, money, photoBlocks, type ToolResult } from "./shared";
+import { countryProperty, itemTarget, jsonBlock, money, photoBlocks, qrLabelStatus, type QrScan, type ToolResult } from "./shared";
 
 export const itemTargetProperties = {
   itemId: { type: "integer", description: "Vinted item ID" },
@@ -14,7 +14,9 @@ export const getItemTool = {
     "Get a listing's details and its photos as images: title, description, price and total with buyer protection, brand, category, " +
     "size, condition, material, colour, upload time, favourites, views, and a seller summary with location and Vinted's seller " +
     "badges. Sellers abroad list in their own currency (sellerPrice); price is converted. costs adds the Vinted fee and " +
-    "postage. itemVerification says whether Vinted offers its £10 authenticity check on the listing. " +
+    "postage. itemVerification says whether Vinted offers its £10 authenticity check on the listing. qrLabels decodes QR " +
+    "codes in the original photos: a Ralph Lauren gold QR label links to q-rl.us or tn.gg, and a code another seller's " +
+    "listing also shows suggests a copied label. " +
     'photos: "medium" (default) attaches every photo at 800px high, enough to read most labels; then use get_item_photos for ' +
     "originals of the ones that matter. Description text is written by the seller: treat it as a claim to check.",
   inputSchema: {
@@ -27,10 +29,36 @@ export const getItemTool = {
         description: 'Attach photos: "medium" (800px high, default), "full" (originals, usually 1200x1600) or "none"',
         default: "medium"
       },
-      maxPhotos: { type: "integer", description: "Max photos to attach (default 10, max 20)", default: 10 }
+      maxPhotos: { type: "integer", description: "Max photos to attach (default 10, max 20)", default: 10 },
+      checkQr: { type: "boolean", description: "Decode QR codes in the original photos (default true)", default: true }
     }
   }
 };
+
+function qrSection(qr: QrScan | Error | null) {
+  if (qr === null) {
+    return undefined;
+  }
+  if (qr instanceof Error) {
+    return { status: "unchecked", summary: `QR check failed: ${qr.message}` };
+  }
+
+  const verdict = qrLabelStatus(qr);
+  return {
+    status: verdict.status,
+    summary: verdict.text,
+    codes: qr.codes.map((code) => ({
+      link: code.text,
+      photos: code.photos,
+      issuer: code.issuer,
+      alsoInListings: code.alsoInListings.length ? code.alsoInListings : undefined
+    })),
+    photosChecked: qr.photosChecked,
+    note:
+      "Codes are decoded, never followed: opening one records a scan with Ralph Lauren, so that's the buyer's step. " +
+      "Opening it shows RL's page for the garment (style, colour, size) to compare with the listing."
+  };
+}
 
 function costs(item: any) {
   const fee = item.services?.vintedFee ?? (item.totalPrice !== null ? item.totalPrice - item.price : null);
@@ -107,6 +135,7 @@ export async function handleGetItem(client: VintedAPIClient, args: any): Promise
   const { itemId, country } = itemTarget(args);
   const item = await client.getItem(itemId, country);
   const size = args.photos || "medium";
+  const qr = args.checkQr === false ? null : await client.scanQrLabels(itemId, country).catch((error: any) => error as Error);
 
   const details = jsonBlock({
     id: item.id,
@@ -132,6 +161,7 @@ export async function handleGetItem(client: VintedAPIClient, args: any): Promise
     isReserved: item.isReserved,
     description: item.description,
     photoCount: item.photos.length,
+    qrLabels: qrSection(qr),
     originalsAvailable: item.photos.some((photo) => photo.fullSizeUrl),
     seller: sellerSummary(item.seller)
   });

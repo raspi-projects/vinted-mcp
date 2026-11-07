@@ -29,8 +29,12 @@ export function buildSearchUrl(params: SearchParams): string {
   if (params.query) {
     url.searchParams.set("search_text", params.query);
   }
-  if (params.categoryId) {
-    url.searchParams.set("attribute_ids[catalog]", String(params.categoryId));
+  const categories = [...(params.categoryIds || []), ...(params.categoryId ? [params.categoryId] : [])];
+  if (categories.length) {
+    url.searchParams.set("attribute_ids[catalog]", categories.join(","));
+  }
+  if (params.colorIds?.length) {
+    url.searchParams.set("attribute_ids[color]", params.colorIds.join(","));
   }
   if (params.brandIds?.length) {
     url.searchParams.set("attribute_ids[brand]", params.brandIds.join(","));
@@ -77,6 +81,10 @@ export function buildWardrobeUrl(userId: number, country: string, page = 1, perP
  */
 export function buildItemServicesUrl(itemId: number, country: string): string {
   return `${getApiBaseUrl(country)}/pricing/public/api/v1/items/${itemId}/services`;
+}
+
+export function buildColoursUrl(country: string): string {
+  return `${getBaseUrl(country)}/api/v2/colors`;
 }
 
 export function buildBrandSearchUrl(keyword: string, country: string): string {
