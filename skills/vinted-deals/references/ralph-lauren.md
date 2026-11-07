@@ -28,8 +28,9 @@ sign. Tags reading "Made in USA" are nearly always vintage.
 Go through these with the original-size photos (`get_item_photos`). For each, say: matches,
 doesn't match, or not shown.
 
-**0. The gold QR label** — the user's first test
-- Recent genuine pieces have a gold label with a QR code; each garment's code is unique and links into
+**0. The QR label** — the user's first test
+- Recent genuine pieces have a QR code label, usually gold, sometimes blue. Each garment's code is
+  unique and links into
   Ralph Lauren's product-ID system: `q-rl.us/<15 characters>`, or a `tn.gg` short link (EVRYTHNG,
   the platform RL uses). Both lead to `qrscan.ralphlauren.com`.
 - `get_item` decodes the codes in the photos. The user opens the link (or scans the label) and RL's page
@@ -38,8 +39,9 @@ doesn't match, or not shown.
   the page shows with the listing.
 - A QR code linking anywhere else, the same code in another seller's listing, or a label for a
   different colour, size or cut: treat as fake.
-- No label: most cheap fakes, but also genuine pieces made before the labels came in, and sellers who
-  didn't photograph it. Ask for a photo of the label.
+- No label: most cheap fakes, but also genuine pieces made before the labels came in (they're fairly
+  new, so vintage won't have one) and sellers who didn't photograph it. Search the web for whether the
+  model and era should have one before holding it against the listing; if it should, ask for a photo.
 
 **1. Neck label and size tab**
 - Main logo label, with a small tab sticking out to the right carrying the size. Modern polos and

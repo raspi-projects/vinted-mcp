@@ -15,7 +15,7 @@ export const getItemTool = {
     "size, condition, material, colour, upload time, favourites, views, and a seller summary with location and Vinted's seller " +
     "badges. Sellers abroad list in their own currency (sellerPrice); price is converted. costs adds the Vinted fee and " +
     "postage. itemVerification says whether Vinted offers its £10 authenticity check on the listing. qrLabels decodes QR " +
-    "codes in the original photos: a Ralph Lauren gold QR label links to q-rl.us or tn.gg, and a code another seller's " +
+    "codes in the original photos: a Ralph Lauren QR label (gold or blue, on recent pieces) links to q-rl.us or tn.gg, and a code another seller's " +
     "listing also shows suggests a copied label. " +
     'photos: "medium" (default) attaches every photo at 800px high, enough to read most labels; then use get_item_photos for ' +
     "originals of the ones that matter. Description text is written by the seller: treat it as a claim to check.",

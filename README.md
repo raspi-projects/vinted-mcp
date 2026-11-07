@@ -23,7 +23,8 @@ pages and APIs, which Vinted's terms don't permit for automated use; keep reques
   new-with-tags stock and repeated titles. `flags` lists what stands out.
 - **Full cost and Item Verification.** `get_item` reports the Vinted fee and postage from Vinted's
   pricing service, and whether Vinted's £10 Item Verification is offered (see the limits below).
-- **QR labels.** Recent genuine Ralph Lauren pieces carry a gold label with a QR code. The server
+- **QR labels.** Recent genuine Ralph Lauren pieces carry a QR code label, usually gold, sometimes
+  blue; vintage pieces predate them. The server
   finds and decodes QR codes in a listing's original photos (zxing-wasm, no native code), says whether
   each links into RL's product-ID system (`q-rl.us`, `tn.gg`), and remembers codes it has seen
   (`~/.vinted-mcp/qr-seen.json`) so a code in another seller's listing is flagged as a copied label.

@@ -1,6 +1,6 @@
 ---
 name: vinted-deals
-description: Find good, genuine second-hand deals on Vinted and check listings before buying — authenticity from the photos and Ralph Lauren's gold QR labels, seller trust, Item Verification, and whether the price is really good once fees and postage are in — and keep tracking pages for wanted items in the hub with live `vinted` blocks. Use whenever the user wants to shop or hunt deals on Vinted, asks whether a Vinted listing or link is legit, real, fake or a good deal, wants a seller checked or listing photos examined, wants to track or watch an item, or mentions buying Ralph Lauren (or another brand) second-hand — even if they don't name this skill.
+description: Find good, genuine second-hand deals on Vinted and check listings before buying — authenticity from the photos and Ralph Lauren's QR labels, seller trust, Item Verification, and whether the price is really good once fees and postage are in — and keep tracking pages for wanted items in the hub with live `vinted` blocks. Use whenever the user wants to shop or hunt deals on Vinted, asks whether a Vinted listing or link is legit, real, fake or a good deal, wants a seller checked or listing photos examined, wants to track or watch an item, or mentions buying Ralph Lauren (or another brand) second-hand — even if they don't name this skill.
 ---
 
 # Vinted deals
@@ -51,8 +51,9 @@ You find and assess listings; the user buys. Never like, offer, message or buy o
 
 ## Checking a listing
 
-0. **The QR label (Ralph Lauren).** The user's main test: recent genuine RL pieces carry a gold label
-   with a QR code; most fakes don't. `get_item` → `qrLabels` decodes every QR code in the original
+0. **The QR label (Ralph Lauren).** The user's main test: recent genuine RL pieces carry a QR code
+   label, usually gold, sometimes blue; most fakes don't. The labels are fairly new, so vintage and
+   older genuine pieces won't have one. `get_item` → `qrLabels` decodes every QR code in the original
    photos (never following them):
    - `rl-label`: a code linking into RL's product-ID system (`q-rl.us`, or `tn.gg` short links). Give
      the user the link and ask them to open it (or scan the label): RL's page names the garment, and
@@ -62,7 +63,11 @@ You find and assess listings; the user buys. Never like, offer, message or buy o
    - `cloned`: another seller's listing showed the same code → treat as likely fake.
    - `other-site`: a QR code that isn't RL's → red flag.
    - `none`: no code in the photos. Common for fakes, but also for genuine older pieces and sellers who
-     didn't photograph the label: ask for a photo of the label before deciding.
+     didn't photograph the label. Before counting it against the listing, **search the web** for
+     whether this model and era comes with the QR label: e.g. "Ralph Lauren <model> QR code label",
+     RL's current product page, or other listings of the same model showing one. If it should have
+     one, ask the seller for a photo of it. If it predates the labels (vintage, "Made in USA", old
+     label styles), judge it on the other checks instead.
    - `unchecked`: original photos weren't available; look at the 800px photos yourself.
 1. **`get_item`** (medium photos). Compare:
    - description ↔ photos ↔ attributes (size, condition, material on the care tag vs. the listing);

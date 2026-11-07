@@ -1,7 +1,7 @@
 import { runtimeRequire } from "./auth/utils";
 
 /**
- * QR labels on garments. Recent Ralph Lauren pieces carry a gold label whose
+ * QR labels on garments. Recent Ralph Lauren pieces carry a gold (sometimes blue) label whose
  * QR code links into RL's digital product ID system (q-rl.us, or the
  * EVRYTHNG/Digimarc short-link domain tn.gg it runs on); each garment's code
  * is unique. Codes are only decoded here, never followed: following one
