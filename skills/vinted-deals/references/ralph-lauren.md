@@ -28,6 +28,19 @@ sign. Tags reading "Made in USA" are nearly always vintage.
 Go through these with the original-size photos (`get_item_photos`). For each, say: matches,
 doesn't match, or not shown.
 
+**0. The gold QR label** — the user's first test
+- Recent genuine pieces have a gold label with a QR code; each garment's code is unique and links into
+  Ralph Lauren's product-ID system: `q-rl.us/<15 characters>`, or a `tn.gg` short link (EVRYTHNG,
+  the platform RL uses). Both lead to `qrscan.ralphlauren.com`.
+- `get_item` decodes the codes in the photos. The user opens the link (or scans the label) and RL's page
+  shows the garment. The product record behind one code gave the style ("LS CABLE CN … SWEATER"),
+  colour ("CAMEL MELANGE"), size (XL), cut (MENS) and fabric (90% wool, 10% cashmere); compare what
+  the page shows with the listing.
+- A QR code linking anywhere else, the same code in another seller's listing, or a label for a
+  different colour, size or cut: treat as fake.
+- No label: most cheap fakes, but also genuine pieces made before the labels came in, and sellers who
+  didn't photograph it. Ask for a photo of the label.
+
 **1. Neck label and size tab**
 - Main logo label, with a small tab sticking out to the right carrying the size. Modern polos and
   shirts often add a fit tag (e.g. Classic Fit, Custom Slim Fit, Slim Fit) sewn in below the main label.
@@ -87,6 +100,7 @@ doesn't match, or not shown.
 - **Country of manufacture:** genuine RL is made in many countries (China, Sri Lanka, Vietnam, Peru,
   India and more).
 - **RN 41381 present:** copied by fakes.
+- **A QR code that merely decodes:** the link must also match the garment (see check 0).
 
 ## Fake patterns on resale sites
 

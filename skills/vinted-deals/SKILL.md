@@ -1,6 +1,6 @@
 ---
 name: vinted-deals
-description: Find good, genuine second-hand deals on Vinted and check listings before buying — authenticity from the photos (Ralph Lauren in particular), seller trust, Item Verification, and whether the price is really good once fees and postage are in. Use whenever the user wants to shop or hunt deals on Vinted, asks whether a Vinted listing or link is legit, real, fake or a good deal, wants a seller checked or listing photos examined, or mentions buying Ralph Lauren (or another brand) second-hand — even if they don't name this skill.
+description: Find good, genuine second-hand deals on Vinted and check listings before buying — authenticity from the photos and Ralph Lauren's gold QR labels, seller trust, Item Verification, and whether the price is really good once fees and postage are in — and keep tracking pages for wanted items in the hub with live `vinted` blocks. Use whenever the user wants to shop or hunt deals on Vinted, asks whether a Vinted listing or link is legit, real, fake or a good deal, wants a seller checked or listing photos examined, wants to track or watch an item, or mentions buying Ralph Lauren (or another brand) second-hand — even if they don't name this skill.
 ---
 
 # Vinted deals
@@ -21,8 +21,11 @@ You find and assess listings; the user buys. Never like, offer, message or buy o
 - **Cite photo numbers** ("photo 4: care tag") so the user can look for themselves.
 - **Money is the full cost**: price + Vinted fee + postage (`get_item` → `costs.total`). Sellers abroad
   list in their own currency (`sellerPrice`) and add import charges and slow delivery.
-- **The median is the yardstick.** `find_deals` compares asking prices of live listings, not sold prices.
-  Narrow comparisons (brand + category + size) mean something; broad ones don't.
+- **The median is the yardstick, but fakes set it.** `find_deals` compares asking prices of live
+  listings, not sold prices. For popular Ralph Lauren pieces most cheap listings are fakes (the user's
+  experience: most ~£30 navy cable-knits are), so the median is the fakes' price. Judge a genuine
+  piece's price against other QR-labelled listings (`requireQrLabel`), not the overall median.
+- **Narrow comparisons** (brand + category + colour + size) mean something; broad ones don't.
 
 ## Hunting for deals
 
@@ -32,10 +35,13 @@ You find and assess listings; the user buys. Never like, offer, message or buy o
    *Ralph Lauren* (88) and *Polo Ralph Lauren* (4273) are separate brands, chosen by the seller, for the
    same clothes: search both. Add other lines only if the user wants them (`find_brand "ralph lauren"`;
    see [references/ralph-lauren.md](references/ralph-lauren.md) for what each line is).
-3. **Sample the market.** `find_deals` with `brands: ["Ralph Lauren", "Polo Ralph Lauren"]`, `categoryId`,
-   `sizes`, and `condition` if the user cares. Read `askingPrices`: the median is the market. If
-   `comparable` is under ~30, raise `pages` to 5 or drop the size filter for the statistics and filter
-   by eye.
+3. **Sample the market.** `find_deals` with `brands: ["Ralph Lauren", "Polo Ralph Lauren"]`,
+   `categoryIds` (several at once, e.g. men's jumpers [1811, 1813, 1815] + women's [1917] leaves out
+   cardigans), `colours` (Vinted's names: "Navy", "Light blue"…), `sizes`, and `condition` if the user
+   cares. If `comparable` is under ~30, raise `pages` to 5 or drop the size filter.
+   For Ralph Lauren, run it a second time with `requireQrLabel: true, maxRatio: 2.5`: only listings whose
+   photos show an RL QR label, cheapest first. Each call scans up to `maxNewScans` (default 40, ~4 s
+   each) and caches scans for a week, so calling again reaches further down the list.
 4. **Triage the thumbnails.** Drop wrong items (kids', women's/men's mix-ups), heavy wear, stock or
    catalogue photos, and logos that already look off. Keep 3–6.
 5. **Look where others don't** (optional): `search_items` with `query: "ralph lauren polo"` and *no*
@@ -45,6 +51,19 @@ You find and assess listings; the user buys. Never like, offer, message or buy o
 
 ## Checking a listing
 
+0. **The QR label (Ralph Lauren).** The user's main test: recent genuine RL pieces carry a gold label
+   with a QR code; most fakes don't. `get_item` → `qrLabels` decodes every QR code in the original
+   photos (never following them):
+   - `rl-label`: a code linking into RL's product-ID system (`q-rl.us`, or `tn.gg` short links). Give
+     the user the link and ask them to open it (or scan the label): RL's page names the garment, and
+     its style, colour, size and cut (men's/women's) must match the listing. A real code on the wrong
+     garment is a copied label. Don't open the links yourself: each opening counts as a scan in RL's
+     system, and too many make a genuine code look cloned.
+   - `cloned`: another seller's listing showed the same code → treat as likely fake.
+   - `other-site`: a QR code that isn't RL's → red flag.
+   - `none`: no code in the photos. Common for fakes, but also for genuine older pieces and sellers who
+     didn't photograph the label: ask for a photo of the label before deciding.
+   - `unchecked`: original photos weren't available; look at the 800px photos yourself.
 1. **`get_item`** (medium photos). Compare:
    - description ↔ photos ↔ attributes (size, condition, material on the care tag vs. the listing);
    - `costs.total`, `sellerPrice`, seller `location`;
@@ -80,13 +99,44 @@ Vinted's optional £10 check sends the item to its hub to confirm authenticity b
   look for the diamond badge on the listing and add verification at checkout if it's there.
 - Below £85 it is never available, so the photo check and the 2-day window are the protection.
 
+## Tracking an item in the hub
+
+When the user wants to watch for an item, give it a page in the hub folder `lars-space/vinted`, e.g.
+`lars-space/vinted/ralph-lauren-navy-cable-knit-jumper` (a model to copy), and list it on
+`lars-space/vinted`. A page has:
+
+- one line on what the item is and the user's size (ask; leave a note if unknown);
+- a ```` ```vinted ```` block with `qr: only` and `max_ratio: 2.5` for the genuine candidates, and one with
+  `qr: show` for the overall price picture (keys on `lars-space/vinted`; the same filters as `find_deals`);
+- "Checking a genuine one": the item-specific checks;
+- "Checked listings": a table you add to after each check (date, link, all-in price, verdict);
+- "Price history": one line per check with the median and how many had QR labels.
+
+Edit pages with `edit_page`, never rewrite them: the user may be typing in them. The block runs the
+same server code (`dist/bundle.js call …`), so build and test changes there first.
+
+## Many look-alikes: recognise the item from a reference
+
+Searches for one item also return lots of similar ones: cardigans, quarter-zips, stripes, other brands
+labelled as Ralph Lauren. When that noise matters:
+
+1. **Build a reference set**: photos from QR-verified listings of the exact item, plus Ralph Lauren's
+   product images if the user can provide them.
+2. **Small sets (≤ ~30 listings):** compare the thumbnails against the reference yourself and say which
+   ranks are the item.
+3. **Large or recurring sets:** offer to build a matcher: image embeddings (e.g. CLIP) of the reference
+   and every listing's photos, ranked by similarity, as a filter in `find_deals` and the hub block.
+   It needs PyTorch (~1 GB) on the Pi, or the laptop's GPU: ask the user before installing anything.
+   The same idea on pony and label close-ups can flag odd-looking ones for a closer look.
+
 ## Reporting
 
 For each listing:
 
 > **[Title](url)** — £total all-in (£price + fee + postage) · size · condition
 > - **Authenticity:** Likely genuine / Can't tell yet / Likely fake — the 1–3 reasons that decided it,
->   with photo numbers.
+>   with photo numbers. Start with the QR label: found (with its link for the user to open), copied,
+>   or missing.
 > - **Price:** X% of the median (£median across N comparable listings) — strong / fair / poor deal.
 > - **Seller:** low / medium / high risk — the facts behind it.
 > - **Item Verification:** offered / check for the diamond badge / not available (< £85).
@@ -98,6 +148,7 @@ seller risk, next step), then the details. End with the reminder that matters on
 and condition the day it arrives — Vinted gives **2 days** to report a problem (14 for Pro sellers), and
 confirmed counterfeits are refunded without sending them back.
 
-Calibrate the wording to the evidence: "likely genuine" needs a clear pony, neck label and care tags that
-all fit; one strong fake tell, or a fake pattern (bulk new-with-tags stock far under the median),
-makes it "likely fake"; anything in between is "can't tell yet" with the photo to ask for.
+Calibrate the wording to the evidence: "likely genuine" needs an RL QR label (for recent pieces) plus a
+clear pony, neck label and care tags that all fit; a copied QR code, one strong fake tell, or a fake
+pattern (bulk new-with-tags stock far under the median) makes it "likely fake"; anything in between is
+"can't tell yet" with the photo to ask for.
