@@ -30,7 +30,10 @@ export function qrLabelStatus(scan: QrScan): { status: "rl-label" | "cloned" | "
   const rl = scan.codes.find((code) => code.issuer === "ralph-lauren");
   if (rl) {
     const relisted = rl.alsoInListings.length ? `; also in this seller's listing ${rl.alsoInListings[0].itemId}` : "";
-    return { status: "rl-label", text: `Ralph Lauren QR label in photo ${rl.photos.join(", ")} (${rl.host})${relisted}` };
+    return {
+      status: "rl-label",
+      text: `QR label linking to Ralph Lauren (${rl.host}) in photo ${rl.photos.join(", ")}${relisted}; only RL's page when scanned proves it`
+    };
   }
   if (scan.codes.length) {
     return { status: "other-site", text: `QR code links to ${scan.codes[0].host || "plain text"}, not Ralph Lauren's ID system` };

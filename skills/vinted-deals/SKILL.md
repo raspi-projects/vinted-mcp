@@ -58,10 +58,12 @@ You find and assess listings; the user buys. Never like, offer, message or buy o
    label, usually gold, sometimes blue; most fakes don't. The labels are fairly new, so vintage and
    older genuine pieces won't have one. `get_item` → `qrLabels` decodes every QR code in the original
    photos (never following them):
-   - `rl-label`: a code linking into RL's product-ID system (`q-rl.us`, or `tn.gg` short links). Give
-     the user the link and ask them to open it (or scan the label): RL's page names the garment, and
-     its style, colour, size and cut (men's/women's) must match the listing. A real code on the wrong
-     garment is a copied label. Don't open the links yourself: each opening counts as a scan in RL's
+   - `rl-label`: a code linking into RL's product-ID system (`q-rl.us`, or `tn.gg` short links). This
+     is **not** proof: fakes carry the gold tab too, with codes that open RL's site and say
+     *Authentication Not Found*. Give the user the link to open (or ask the seller for a straight-on
+     photo of the tag to scan). Only RL's record decides: a genuine code shows the supplier number,
+     material number and manufacture date (and the garment), which must fit the listing. A gold tab
+     seen in photos without a scan is a first filter, nothing more. Don't open the links yourself: each opening counts as a scan in RL's
      system, and too many make a genuine code look cloned.
    - `cloned`: another seller's listing showed the same code → treat as likely fake.
    - `other-site`: a QR code that isn't RL's → red flag.

@@ -37,6 +37,9 @@ doesn't match, or not shown.
   shows the garment. The product record behind one code gave the style ("LS CABLE CN … SWEATER"),
   colour ("CAMEL MELANGE"), size (XL), cut (MENS) and fabric (90% wool, 10% cashmere); compare what
   the page shows with the listing.
+- A genuine code opens RL's record with the supplier number, material number (Polo men's start
+  with 710) and manufacture date. **"Authentication Not Found"** on RL's page means a fake label, even
+  though the tab and the q-rl.us link look right: counterfeiters copy both.
 - A QR code linking anywhere else, the same code in another seller's listing, or a label for a
   different colour, size or cut: treat as fake.
 - No label: most cheap fakes, but also genuine pieces made before the labels came in (they're fairly
