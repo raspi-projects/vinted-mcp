@@ -259,10 +259,13 @@ export class VintedAPIClient {
    * photos are WebP, which the decoder can't read, so a listing whose
    * originals aren't in the seller's wardrobe can't be checked.
    */
-  async scanQrLabels(id: number, country: string, options: { useCache?: boolean } = {}) {
+  async scanQrLabels(id: number, country: string, options: { useCache?: boolean; cacheOnly?: boolean } = {}) {
     let scan = options.useCache === false ? null : this.qrRegistry.cachedScan(id);
     const cached = Boolean(scan);
 
+    if (!scan && options.cacheOnly) {
+      return null;
+    }
     if (!scan) {
       const item = await this.getItem(id, country);
       const originals = item.photos.filter((photo) => photo.fullSizeUrl);

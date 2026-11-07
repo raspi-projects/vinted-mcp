@@ -9,7 +9,7 @@ export const countryProperty = {
   description: `Country code (${SUPPORTED_COUNTRY_CODES.join(", ")}). Defaults to VINTED_DEFAULT_COUNTRY, else uk.`
 };
 
-export type QrScan = Awaited<ReturnType<VintedAPIClient["scanQrLabels"]>>;
+export type QrScan = NonNullable<Awaited<ReturnType<VintedAPIClient["scanQrLabels"]>>>;
 
 /**
  * One verdict per listing from its QR scan. A code another seller's listing
@@ -36,6 +36,41 @@ export function qrLabelStatus(scan: QrScan): { status: "rl-label" | "cloned" | "
     return { status: "other-site", text: `QR code links to ${scan.codes[0].host || "plain text"}, not Ralph Lauren's ID system` };
   }
   return { status: "none", text: `no QR code found in ${scan.photosChecked} original photos` };
+}
+
+export const maxNewScansProperty = {
+  type: "integer",
+  description:
+    "QR checks: listings to scan fresh this call (0-60, default 40; each fetches a listing page, 3-4 s). Beyond that, and " +
+    "always with 0, only scans cached in the last week are used, which is instant; the rest count as qrPending.",
+  default: 40
+};
+
+/**
+ * Scans listings one at a time (item pages are rate-limited), up to
+ * `maxNewScans` fresh ones, then answers from the week-long cache only.
+ */
+export function qrScanner(client: VintedAPIClient, country: string, maxNewScans: number) {
+  let newScans = 0;
+  let pending = 0;
+  const scan = async (id: number): Promise<{ status: string; text: string }> => {
+    try {
+      const result = await client.scanQrLabels(id, country, { cacheOnly: newScans >= maxNewScans });
+      if (!result) {
+        pending += 1;
+        return { status: "unchecked", text: "not scanned yet" };
+      }
+      newScans += result.cached ? 0 : 1;
+      return qrLabelStatus(result);
+    } catch (error: any) {
+      return { status: "unchecked", text: `not checked: ${error.message}` };
+    }
+  };
+  return { scan, stats: () => ({ newScans, pending }) };
+}
+
+export function maxNewScans(args: any): number {
+  return Math.min(Math.max(args.maxNewScans ?? 40, 0), 60);
 }
 
 /** Runs `fn` over `items` with at most `limit` running at once, keeping order. */

@@ -95,7 +95,8 @@ refreshed every 30 minutes. See the hub page `lars-space/vinted` for its keys.
   hundreds of listings an older item may only be available at 800px, and then its QR label can't be
   decoded (the decoder reads JPEG, and the 800px photos are WebP).
 - **Item pages are rate-limited.** QR scans fetch one each (3–4 s with backoff), so they run one at a
-  time and are cached for a week.
+  time and are cached for a week. `maxNewScans: 0` reads only the cache (instant) and reports
+  `qrPending`; the hub block does that and leaves new scans to one background process.
 
 ## Signing in (optional)
 

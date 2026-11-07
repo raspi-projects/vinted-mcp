@@ -41,7 +41,8 @@ You find and assess listings; the user buys. Never like, offer, message or buy o
    cares. If `comparable` is under ~30, raise `pages` to 5 or drop the size filter.
    For Ralph Lauren, run it a second time with `requireQrLabel: true, maxRatio: 2.5`: only listings whose
    photos show an RL QR label, cheapest first. Each call scans up to `maxNewScans` (default 40, ~4 s
-   each) and caches scans for a week, so calling again reaches further down the list.
+   each) and caches scans for a week, so calling again reaches further down the list;
+   `maxNewScans: 0` answers from the cache only, instantly (`qrPending` says how many are unchecked).
 4. **Triage the thumbnails.** Drop wrong items (kids', women's/men's mix-ups), heavy wear, stock or
    catalogue photos, and logos that already look off. Keep 3–6.
 5. **Look where others don't** (optional): `search_items` with `query: "ralph lauren polo"` and *no*

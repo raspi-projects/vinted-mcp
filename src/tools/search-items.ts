@@ -7,7 +7,9 @@ import {
   jsonBlock,
   listingSummary,
   mapLimit,
-  qrLabelStatus,
+  maxNewScans,
+  maxNewScansProperty,
+  qrScanner,
   thumbnailBlocks,
   type ToolResult
 } from "./shared";
@@ -75,7 +77,8 @@ export const searchItemsTool = {
         type: "boolean",
         description: "Decode QR codes in each returned item's original photos and add qrLabel (slower)",
         default: false
-      }
+      },
+      maxNewScans: maxNewScansProperty
     }
   }
 };
@@ -104,18 +107,13 @@ export async function handleSearchItems(client: VintedAPIClient, args: any): Pro
   });
 
   const items = result.items.filter((item) => sizeMatches(item.size, sizes)).slice(0, limit);
-  const qr = args.checkQr
-    ? await mapLimit(items, 1, (item: ParsedItem) =>
-        client
-          .scanQrLabels(item.id, country)
-          .then(qrLabelStatus)
-          .catch((error: any) => ({ status: "unchecked", text: `not checked: ${error.message}` }))
-      )
-    : null;
+  const scanner = qrScanner(client, country, maxNewScans(args));
+  const qr = args.checkQr ? await mapLimit(items, 1, (item: ParsedItem) => scanner.scan(item.id)) : null;
   const summary = jsonBlock({
     totalFound: result.totalCount,
     note: result.totalCount >= 960 ? "Vinted caps totalFound at 960" : undefined,
     returned: items.length,
+    qrPending: qr ? scanner.stats().pending : undefined,
     country,
     brands: brands.resolved.length ? brands.resolved : undefined,
     items: items.map((item, i) => ({ rank: i + 1, qrLabel: qr?.[i], ...listingSummary(item) }))

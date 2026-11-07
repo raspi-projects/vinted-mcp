@@ -9,7 +9,9 @@ import {
   jsonBlock,
   listingSummary,
   mapLimit,
-  qrLabelStatus,
+  maxNewScans,
+  maxNewScansProperty,
+  qrScanner,
   thumbnailBlocks,
   type ToolResult
 } from "./shared";
@@ -49,11 +51,11 @@ export const findDealsTool = {
         type: "boolean",
         description:
           "Only return listings showing a Ralph Lauren QR label: scans candidates cheapest first until `limit` are found. " +
-          "At most maxNewScans new scans per call (3-4 s each); scans are cached for a week, so calling again goes further. " +
+          "Fresh scans are capped by maxNewScans and cached for a week, so calling again goes further. " +
           "Fakes rarely have a label, so use a higher maxRatio, e.g. 2.5.",
         default: false
       },
-      maxNewScans: { type: "integer", description: "requireQrLabel: new listings to scan this call (1-60, default 40)", default: 40 },
+      maxNewScans: maxNewScansProperty,
       includeThumbnails: { type: "boolean", description: "Attach a 310x430 photo of each deal", default: true }
     }
   }
@@ -95,34 +97,24 @@ export async function handleFindDeals(client: VintedAPIClient, args: any): Promi
   const currency = comparable[0]?.currency;
 
   const qr = new Map<number, { status: string; text: string }>();
-  // Each scan fetches an item page, which Vinted rate-limits; later calls continue from the cache.
-  const maxNewScans = Math.min(Math.max(args.maxNewScans || 40, 1), 60);
-  let freshScans = 0;
-  const scan = (id: number) =>
-    client
-      .scanQrLabels(id, country)
-      .then((result) => {
-        freshScans += result.cached ? 0 : 1;
-        return qrLabelStatus(result);
-      })
-      .catch((error: any) => ({ status: "unchecked", text: `not checked: ${error.message}` }));
+  const scanner = qrScanner(client, country, maxNewScans(args));
 
   let deals = ranked.slice(0, limit);
   if (args.requireQrLabel) {
-    // Scans are cached for a week, so each call reaches further down the list.
+    // Fresh scans stop at maxNewScans; the rest of the list is read from the cache.
     deals = [];
     for (const deal of ranked) {
-      if (deals.length >= limit || freshScans >= maxNewScans) {
+      if (deals.length >= limit) {
         break;
       }
-      const verdict = await scan(deal.item.id);
+      const verdict = await scanner.scan(deal.item.id);
       qr.set(deal.item.id, verdict);
       if (verdict.status === "rl-label") {
         deals.push(deal);
       }
     }
   } else if (args.checkQr) {
-    const results = await mapLimit(deals, 1, (deal) => scan(deal.item.id));
+    const results = await mapLimit(deals, 1, (deal) => scanner.scan(deal.item.id));
     deals.forEach((deal, i) => qr.set(deal.item.id, results[i]));
   }
 
@@ -140,8 +132,9 @@ export async function handleFindDeals(client: VintedAPIClient, args: any): Promi
       listings: sample.items.length,
       comparable: comparable.length,
       sortBy: args.sortBy || "newest_first",
-      qrScanned: qr.size || undefined,
-      qrNewScans: qr.size ? freshScans : undefined,
+      qrScanned: qr.size ? qr.size - scanner.stats().pending : undefined,
+      qrNewScans: qr.size ? scanner.stats().newScans : undefined,
+      qrPending: qr.size ? scanner.stats().pending : undefined,
       qrLabelled: qr.size ? [...qr.values()].filter((verdict) => verdict.status === "rl-label").length : undefined
     },
     askingPrices: { ...stats, currency },
